@@ -19,8 +19,10 @@ export function App() {
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [health, setHealth] = useState<{ localConfigured: boolean; openaiConfigured: boolean } | null>(null);
   const [error, setError] = useState("");
+  const [displayedProgress, setDisplayedProgress] = useState(0);
 
   const isWorking = job?.status === "queued" || job?.status === "running";
+  const progressLabel = displayedProgress.toFixed(1);
   const reviewCount = useMemo(
     () => result?.sentences.filter((sentence) => sentence.qualityStatus === "review").length ?? 0,
     [result]
@@ -52,9 +54,39 @@ export function App() {
     return () => window.clearInterval(id);
   }, [job]);
 
+  useEffect(() => {
+    if (!job) {
+      setDisplayedProgress(0);
+      return;
+    }
+
+    const target = Math.max(0, Math.min(100, job.progress));
+
+    setDisplayedProgress((current) => {
+      if (current > target || job.status === "queued") {
+        return target;
+      }
+
+      return current;
+    });
+
+    const id = window.setInterval(() => {
+      setDisplayedProgress((current) => {
+        if (current >= target) {
+          return current;
+        }
+
+        return Math.min(target, Number((current + 0.1).toFixed(1)));
+      });
+    }, 16);
+
+    return () => window.clearInterval(id);
+  }, [job?.id, job?.progress, job?.status]);
+
   async function submit() {
     setError("");
     setResult(null);
+    setDisplayedProgress(0);
 
     const response = await fetch("/api/transcriptions", {
       method: "POST",
@@ -153,9 +185,9 @@ export function App() {
               onChange={(event) => setForm({ ...form, localModel: event.target.value as LocalModel })}
               disabled={form.provider !== "local"}
             >
-              <option value="large-v3-turbo-q8_0">large-v3-turbo-q8_0 · 834 MiB</option>
-              <option value="large-v3-turbo-q5_0">large-v3-turbo-q5_0 · 547 MiB</option>
-              <option value="large-v3">large-v3 · 2.9 GiB</option>
+              <option value="large-v3-turbo-q8_0">large-v3-turbo-q8_0 - 834 MiB</option>
+              <option value="large-v3-turbo-q5_0">large-v3-turbo-q5_0 - 547 MiB</option>
+              <option value="large-v3">large-v3 - 2.9 GiB</option>
             </select>
           </label>
 
@@ -193,8 +225,8 @@ export function App() {
           {job ? (
             <div className="status-bar">
               <span>{job.message}</span>
-              <progress max="100" value={job.progress} />
-              <span>{job.progress}%</span>
+              <progress max="100" value={displayedProgress} />
+              <span>{progressLabel}%</span>
             </div>
           ) : null}
 
@@ -205,7 +237,7 @@ export function App() {
                   <p className="eyebrow">Transcript</p>
                   <h2>{result.sentences.length} sentences</h2>
                   <p className="subtle">
-                    {result.provider} · {result.model} · {reviewCount} need review
+                    {result.provider} - {result.model} - {reviewCount} need review
                   </p>
                 </div>
                 <div className="export-actions">

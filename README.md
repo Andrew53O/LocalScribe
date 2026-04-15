@@ -77,6 +77,26 @@ Avoid `.en` models for this app because they are English-only.
 
 6. Open `http://127.0.0.1:5173`.
 
+## NVIDIA GPU Acceleration
+
+Yes, this project can use an NVIDIA graphics card. The app runs whatever `whisper-cli.exe` you put in `WHISPER_CPP_BIN`, and it does not pass `--no-gpu`, so a GPU-enabled whisper.cpp build can use the GPU automatically.
+
+For Windows with NVIDIA:
+
+1. Make sure your NVIDIA driver is installed.
+2. Download a CUDA/cuBLAS whisper.cpp build instead of the CPU build.
+   - CUDA 12.x: `whisper-cublas-12.4.0-bin-x64.zip`
+   - CUDA 11.x: `whisper-cublas-11.8.0-bin-x64.zip`
+3. Extract it into a local ignored folder, for example `tools\whisper.cpp-cuda`.
+4. Set `.env` to the CUDA build:
+
+   ```env
+   WHISPER_CPP_BIN=E:\allProject\13. Youtube Transcribe\tools\whisper.cpp-cuda\Release\whisper-cli.exe
+   WHISPER_MODEL_PATH=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
+   ```
+
+The model file is the same for CPU and GPU. Only the `whisper-cli.exe` build changes.
+
 ## Git Ignore Notes
 
 The model and local tool folders are intentionally ignored:

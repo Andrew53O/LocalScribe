@@ -29,8 +29,8 @@ export function buildWhisperArgs(input: WhisperInput): string[] {
     "-otxt",
     "-of",
     outputBase,
-    "-pp",
-    "-nt"
+    "-ojf",
+    "-pp"
   ];
 
   const language = mapLanguage(input.languageHint);
@@ -126,7 +126,7 @@ function buildPrompt(languageHint: LanguageHint, glossary = ""): string {
 
 function mapLanguage(languageHint: LanguageHint): string | undefined {
   if (languageHint === "auto") {
-    return undefined;
+    return "auto";
   }
 
   if (languageHint === "zh-TW") {

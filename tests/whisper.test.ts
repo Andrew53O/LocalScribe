@@ -21,6 +21,23 @@ describe("whisper.cpp integration helpers", () => {
     expect(args).toContain("--prompt");
   });
 
+  it("uses whisper auto-detect for mixed language mode", () => {
+    const args = buildWhisperArgs({
+      audioPath: "segment.wav",
+      workDir: "tmp",
+      languageHint: "auto",
+      config: {
+        whisperBin: "whisper-cli",
+        modelPath: "model.bin",
+        modelName: "large-v3-turbo-q8_0"
+      }
+    });
+
+    expect(args).toContain("-l");
+    expect(args).toContain("auto");
+    expect(args).not.toContain("-nt");
+  });
+
   it("parses whisper.cpp JSON output", () => {
     const segments = parseWhisperJson(
       JSON.stringify({

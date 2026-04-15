@@ -21,11 +21,21 @@ export function isSupportedYoutubeUrl(value: string): boolean {
     }
 
     if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
-      return url.searchParams.has("v") || url.pathname.startsWith("/shorts/");
+      return url.searchParams.has("v") || hasPathVideoId(url.pathname, ["/shorts/", "/live/"]);
     }
 
     return false;
   } catch {
     return false;
   }
+}
+
+function hasPathVideoId(pathname: string, prefixes: string[]): boolean {
+  return prefixes.some((prefix) => {
+    if (!pathname.startsWith(prefix)) {
+      return false;
+    }
+
+    return pathname.slice(prefix.length).split("/")[0].length > 0;
+  });
 }

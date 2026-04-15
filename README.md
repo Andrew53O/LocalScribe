@@ -25,24 +25,68 @@ Avoid `.en` models for this app because they are English-only.
 
 1. Install dependencies:
 
-   ```bash
+   ```powershell
    npm install
    ```
 
-2. Copy `.env.example` to `.env` and set:
+2. Copy `.env.example` to `.env`:
 
-   ```env
-   WHISPER_CPP_BIN=C:\path\to\whisper-cli.exe
-   WHISPER_MODEL_PATH=C:\path\to\ggml-large-v3-turbo-q8_0.bin
+   ```powershell
+   Copy-Item .env.example .env
    ```
 
-3. Start the app:
+3. Install `yt-dlp` and `ffmpeg`.
 
-   ```bash
+   On this machine they are installed in `C:\yt-dlp`. If they are elsewhere, update these lines in `.env`:
+
+   ```env
+   YTDLP_BIN=C:\path\to\yt-dlp.exe
+   FFMPEG_BIN=C:\path\to\ffmpeg.exe
+   ```
+
+4. Download `whisper.cpp` and the recommended model.
+
+   Automatic PowerShell install into this project:
+
+   ```powershell
+   New-Item -ItemType Directory -Force -Path tools\downloads, tools\whisper.cpp, models
+   curl.exe -L -o tools\downloads\whisper-bin-x64.zip https://sourceforge.net/projects/whisper-cpp.mirror/files/v1.8.2/whisper-bin-x64.zip/download
+   tar -xf tools\downloads\whisper-bin-x64.zip -C tools\whisper.cpp
+   curl.exe -L -o models\ggml-large-v3-turbo-q8_0.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin?download=true"
+   ```
+
+   Then set these lines in `.env`:
+
+   ```env
+   WHISPER_CPP_BIN=E:\allProject\13. Youtube Transcribe\tools\whisper.cpp\Release\whisper-cli.exe
+   WHISPER_MODEL_PATH=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
+   ```
+
+   Manual download option:
+
+   - Download `whisper-bin-x64.zip` from the `whisper.cpp` release mirror.
+   - Extract it and find `whisper-cli.exe`.
+   - Download `ggml-large-v3-turbo-q8_0.bin` from `ggerganov/whisper.cpp` on Hugging Face.
+   - Put those two absolute paths into `.env`.
+
+5. Start the app:
+
+   ```powershell
    npm run dev
    ```
 
-4. Open `http://127.0.0.1:5173`.
+6. Open `http://127.0.0.1:5173`.
+
+## Git Ignore Notes
+
+The model and local tool folders are intentionally ignored:
+
+```gitignore
+models/
+tools/
+```
+
+Do not commit the Whisper model or extracted binaries. The model is large, and each user should download it locally.
 
 ## Optional OpenAI Mode
 

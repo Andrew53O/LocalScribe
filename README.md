@@ -44,8 +44,8 @@ flowchart LR
         HEALTH[/GET /api/health/]
         META[/GET /api/video-metadata/]
         JOBS[/POST /api/transcriptions/]
-        STATUS[/GET /api/transcriptions/:id/]
-        RESULT[/GET /api/transcriptions/:id/result/]
+        STATUS["GET /api/transcriptions/<br/>:id"]
+        RESULT["GET /api/transcriptions/<br/>:id/result"]
     end
 
     subgraph Pipeline["Transcription Pipeline"]
@@ -236,15 +236,17 @@ If anything is missing or broken, the UI shows which check failed.
    - `Transcript`
    - `Editable Paragraph`
 7. Use `History` in the left panel to reuse prior videos
+8. Open the `≡` menu in the control panel to change default language and model
 
 ## Transcript Review
 
 Transcript view supports:
 
 - click-to-seek playback
+- jump-to-active playback that also brings the active transcript line into view
 - speaker labels
 - review filters
-- approve / needs-review / edit / reset actions
+- compact symbol actions for approve / needs-review / edit / reset
 
 The paragraph view is designed for freeform editing and copying.
 
@@ -267,7 +269,7 @@ The browser stores:
 - default language
 - default local model
 
-These values are applied automatically on load.
+These values are applied automatically on load. They are available from the `≡` settings drawer in the control panel.
 
 ## Export Formats
 

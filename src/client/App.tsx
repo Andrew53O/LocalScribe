@@ -89,6 +89,10 @@ const defaultLocalSettings: LocalSettings = {
 
 export function App() {
   const resultPanelRef = useRef<HTMLElement | null>(null);
+  const timeFieldStateRef = useRef<Record<TimeFieldName, { segmentIndex: number; firstDigit: string } | null>>({
+    startTime: null,
+    endTime: null
+  });
   const [settings, setSettings] = useState<LocalSettings>(() => loadLocalSettings());
   const [form, setForm] = useState(() => ({
     ...initialForm,
@@ -554,35 +558,42 @@ export function App() {
     const selectionEnd = input.selectionEnd ?? selectionStart;
     const segmentIndex = getTimeSegmentIndex(selectionStart);
     const [segmentStart, segmentEnd] = getTimeSegmentRangeByIndex(segmentIndex);
+    const fieldState = timeFieldStateRef.current[field];
 
     if (/^\d$/.test(event.key)) {
       event.preventDefault();
 
-      const segmentValue = currentValue.slice(segmentStart, segmentEnd);
-      const isWholeSegmentSelected = selectionStart === segmentStart && selectionEnd === segmentEnd;
-      const isFirstDigitTarget =
-        isWholeSegmentSelected ||
-        selectionStart <= segmentStart ||
-        (selectionStart === segmentStart && selectionEnd <= segmentStart + 1);
+      const isContinuingSegment =
+        fieldState?.segmentIndex === segmentIndex &&
+        fieldState.firstDigit.length === 1 &&
+        selectionStart === segmentStart + 1 &&
+        selectionEnd === segmentStart + 1;
       const nextSegmentValue = clampTimeSegment(
-        isFirstDigitTarget ? `0${event.key}` : `${segmentValue[0]}${event.key}`,
+        isContinuingSegment ? `${fieldState.firstDigit}${event.key}` : `0${event.key}`,
         segmentIndex
       );
       const nextValue = replaceTimeSegment(currentValue, segmentIndex, nextSegmentValue);
-      const nextSelection = isFirstDigitTarget
-        ? [segmentStart + 1, segmentEnd] as const
-        : segmentIndex < 2
-          ? getTimeSegmentRangeByIndex(segmentIndex + 1)
-          : [segmentEnd, segmentEnd] as const;
 
       updateTimeField(field, nextValue);
-      window.requestAnimationFrame(() => input.setSelectionRange(nextSelection[0], nextSelection[1]));
+
+      if (isContinuingSegment) {
+        timeFieldStateRef.current[field] = null;
+        const nextSelection = segmentIndex < 2
+          ? getTimeSegmentRangeByIndex(segmentIndex + 1)
+          : [segmentEnd, segmentEnd] as const;
+        window.requestAnimationFrame(() => input.setSelectionRange(nextSelection[0], nextSelection[1]));
+      } else {
+        timeFieldStateRef.current[field] = { segmentIndex, firstDigit: event.key };
+        window.requestAnimationFrame(() => input.setSelectionRange(segmentStart + 1, segmentStart + 1));
+      }
+
       return;
     }
 
     if (event.key === "Backspace" || event.key === "Delete") {
       event.preventDefault();
       const nextValue = replaceTimeSegment(currentValue, segmentIndex, "00");
+      timeFieldStateRef.current[field] = null;
       updateTimeField(field, nextValue);
       window.requestAnimationFrame(() => input.setSelectionRange(segmentStart, segmentEnd));
       return;
@@ -590,6 +601,7 @@ export function App() {
 
     if (event.key === ":") {
       event.preventDefault();
+      timeFieldStateRef.current[field] = null;
       const nextRange = segmentIndex < 2 ? getTimeSegmentRangeByIndex(segmentIndex + 1) : getTimeSegmentRangeByIndex(2);
       window.requestAnimationFrame(() => input.setSelectionRange(nextRange[0], nextRange[1]));
       return;
@@ -597,6 +609,7 @@ export function App() {
 
     if (event.key === "ArrowLeft") {
       event.preventDefault();
+      timeFieldStateRef.current[field] = null;
       const nextRange = getTimeSegmentRangeByIndex(Math.max(0, segmentIndex - 1));
       window.requestAnimationFrame(() => input.setSelectionRange(nextRange[0], nextRange[1]));
       return;
@@ -604,13 +617,18 @@ export function App() {
 
     if (event.key === "ArrowRight") {
       event.preventDefault();
+      timeFieldStateRef.current[field] = null;
       const nextRange = getTimeSegmentRangeByIndex(Math.min(2, segmentIndex + 1));
       window.requestAnimationFrame(() => input.setSelectionRange(nextRange[0], nextRange[1]));
+      return;
     }
+
+    timeFieldStateRef.current[field] = null;
   }
 
   function handleTimeFieldPaste(field: TimeFieldName, event: ClipboardEvent<HTMLInputElement>) {
     event.preventDefault();
+    timeFieldStateRef.current[field] = null;
     updateTimeField(field, formatTimeInput(event.clipboardData.getData("text")));
   }
 

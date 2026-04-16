@@ -89,6 +89,9 @@ const defaultLocalSettings: LocalSettings = {
 
 export function App() {
   const resultPanelRef = useRef<HTMLElement | null>(null);
+  const playerHostRef = useRef<HTMLDivElement | null>(null);
+  const youtubePlayerRef = useRef<YoutubePlayer | null>(null);
+  const activeSentenceIndexRef = useRef<number | null>(null);
   const timeFieldStateRef = useRef<Record<TimeFieldName, { segmentIndex: number; firstDigit: string } | null>>({
     startTime: null,
     endTime: null
@@ -176,6 +179,10 @@ export function App() {
       (item) => item.title.toLowerCase().includes(query) || item.youtubeUrl.toLowerCase().includes(query)
     );
   }, [historyItems, historyQuery]);
+
+  useEffect(() => {
+    activeSentenceIndexRef.current = activeSentenceIndex;
+  }, [activeSentenceIndex]);
 
   useEffect(() => {
     let cancelled = false;
@@ -369,6 +376,72 @@ export function App() {
     return () => window.clearInterval(id);
   }, [isWorking]);
 
+  useEffect(() => {
+    if (!playerState) {
+      youtubePlayerRef.current?.destroy();
+      youtubePlayerRef.current = null;
+      setPlayerFocusMode(false);
+      setIsControlPanelCollapsed(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadYouTubeIframeApi().then(() => {
+      if (cancelled || !playerHostRef.current || !window.YT?.Player) {
+        return;
+      }
+
+      youtubePlayerRef.current?.destroy();
+      youtubePlayerRef.current = new window.YT.Player(playerHostRef.current, {
+        videoId: playerState.videoId,
+        playerVars: {
+          playsinline: 1,
+          rel: 0
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      youtubePlayerRef.current?.destroy();
+      youtubePlayerRef.current = null;
+    };
+  }, [playerState?.videoId]);
+
+  useEffect(() => {
+    if (!youtubePlayerRef.current || !result?.sentences.length) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const player = youtubePlayerRef.current;
+
+      if (!player) {
+        return;
+      }
+
+      const currentTime = player.getCurrentTime();
+      if (!Number.isFinite(currentTime)) {
+        return;
+      }
+
+      const nextIndex = findSentenceIndexForTime(result.sentences, currentTime);
+      if (nextIndex === null || nextIndex === activeSentenceIndexRef.current) {
+        return;
+      }
+
+      activeSentenceIndexRef.current = nextIndex;
+      setActiveSentenceIndex(nextIndex);
+
+      if (isInteractiveMode) {
+        scrollSentenceIntoView(nextIndex);
+      }
+    }, 700);
+
+    return () => window.clearInterval(intervalId);
+  }, [result, isInteractiveMode, playerState?.videoId]);
+
   async function submit() {
     setError("");
     setResult(null);
@@ -514,33 +587,14 @@ export function App() {
 
   function seekToSentence(seconds: number, index: number) {
     setActiveSentenceIndex(index);
+    activeSentenceIndexRef.current = index;
 
-    if (!playerState) {
+    if (!playerState || !youtubePlayerRef.current) {
       return;
     }
 
-    const iframe = document.getElementById("youtube-player-frame") as HTMLIFrameElement | null;
-    if (!iframe?.contentWindow) {
-      return;
-    }
-
-    iframe.contentWindow.postMessage(
-      JSON.stringify({
-        event: "command",
-        func: "seekTo",
-        args: [Math.max(0, Math.floor(seconds)), true]
-      }),
-      "*"
-    );
-
-    iframe.contentWindow.postMessage(
-      JSON.stringify({
-        event: "command",
-        func: "playVideo",
-        args: []
-      }),
-      "*"
-    );
+    youtubePlayerRef.current.seekTo(Math.max(0, Math.floor(seconds)), true);
+    youtubePlayerRef.current.playVideo();
   }
 
   function scrollSentenceIntoView(index: number) {
@@ -575,14 +629,14 @@ export function App() {
   }
 
   function openControlView(view: ControlView) {
+    exitInteractiveMode();
     setControlView(view);
     setShowSettings(false);
-    setIsControlPanelCollapsed(false);
   }
 
   function openSettingsPanel() {
+    exitInteractiveMode();
     setShowSettings(true);
-    setIsControlPanelCollapsed(false);
   }
 
   function updateTimeField(field: TimeFieldName, value: string) {
@@ -684,7 +738,7 @@ export function App() {
                 type="button"
                 aria-label="Expand control panel"
                 title="Expand control panel"
-                onClick={() => setIsControlPanelCollapsed(false)}
+                onClick={exitInteractiveMode}
               >
                 <PanelExpandIcon />
               </button>
@@ -1054,51 +1108,57 @@ export function App() {
                     </div>
                   </div>
                   <div className="player-frame-wrap">
-                    <iframe
-                      id="youtube-player-frame"
-                      title="YouTube player"
-                      src={playerState.embedUrl}
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
+                    <div id="youtube-player-frame" ref={playerHostRef} className="player-host" />
                   </div>
                 </section>
               ) : null}
-              <div className="result-header">
-                <div>
-                  <p className="eyebrow">Transcript</p>
-                  <h2>{result.sentences.length} sentences</h2>
-                  <p className="subtle">
-                    {result.provider} - {result.model} - {reviewCount} need review
-                    {result.partial && result.totalChunks
-                      ? ` - live ${result.completedChunks ?? 0}/${result.totalChunks} chunks`
-                      : ""}
-                  </p>
+              {!isInteractiveMode ? (
+                <>
+                  <div className="result-header">
+                    <div>
+                      <p className="eyebrow">Transcript</p>
+                      <h2>{result.sentences.length} sentences</h2>
+                      <p className="subtle">
+                        {result.provider} - {result.model} - {reviewCount} need review
+                        {result.partial && result.totalChunks
+                          ? ` - live ${result.completedChunks ?? 0}/${result.totalChunks} chunks`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="export-actions">
+                      <button type="button" onClick={() => exportResult("txt")}>TXT</button>
+                      <button type="button" onClick={() => exportResult("srt")}>SRT</button>
+                      <button type="button" onClick={() => exportResult("json")}>JSON</button>
+                    </div>
+                  </div>
+                  <div className="segmented result-tabs" role="tablist" aria-label="Result views">
+                    <button
+                      className={resultView === "transcript" ? "active" : ""}
+                      type="button"
+                      onClick={() => setResultView("transcript")}
+                    >
+                      Transcript
+                    </button>
+                    <button
+                      className={resultView === "plain" ? "active" : ""}
+                      type="button"
+                      onClick={() => setResultView("plain")}
+                    >
+                      Editable Paragraph
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="interactive-summary-bar">
+                  <span>{result.sentences.length} sentences</span>
+                  <span>{result.provider}</span>
+                  <span>{result.model}</span>
+                  <span>{reviewCount} need review</span>
                 </div>
-                <div className="export-actions">
-                  <button type="button" onClick={() => exportResult("txt")}>TXT</button>
-                  <button type="button" onClick={() => exportResult("srt")}>SRT</button>
-                  <button type="button" onClick={() => exportResult("json")}>JSON</button>
-                </div>
-              </div>
-              <div className="segmented result-tabs" role="tablist" aria-label="Result views">
-                <button
-                  className={resultView === "transcript" ? "active" : ""}
-                  type="button"
-                  onClick={() => setResultView("transcript")}
-                >
-                  Transcript
-                </button>
-                <button
-                  className={resultView === "plain" ? "active" : ""}
-                  type="button"
-                  onClick={() => setResultView("plain")}
-                >
-                  Editable Paragraph
-                </button>
-              </div>
+              )}
               {resultView === "transcript" ? (
                 <>
+                  {!isInteractiveMode ? (
                   <section className="review-toolbar" aria-label="Review workflow">
                     <div className="review-summary">
                       <span>Pending {reviewSummary.pending}</span>
@@ -1129,6 +1189,7 @@ export function App() {
                       </button>
                     </div>
                   </section>
+                  ) : null}
                   <TranscriptView
                   sentences={transcriptSentences}
                   visibleSentenceIndices={visibleSentenceIndices}
@@ -1168,6 +1229,65 @@ export function App() {
                   />
                 </section>
               )}
+              {isInteractiveMode ? (
+                <section className="interactive-footer" aria-label="Interactive transcript controls">
+                  <div className="interactive-footer-summary">
+                    <span>{reviewCount} need review</span>
+                    {result.partial && result.totalChunks ? <span>live {result.completedChunks ?? 0}/{result.totalChunks}</span> : null}
+                  </div>
+                  <div className="interactive-footer-main">
+                    <div className="segmented result-tabs interactive-tabs" role="tablist" aria-label="Result views">
+                      <button
+                        className={resultView === "transcript" ? "active" : ""}
+                        type="button"
+                        onClick={() => setResultView("transcript")}
+                      >
+                        Transcript
+                      </button>
+                      <button
+                        className={resultView === "plain" ? "active" : ""}
+                        type="button"
+                        onClick={() => setResultView("plain")}
+                      >
+                        Paragraph
+                      </button>
+                    </div>
+                    {resultView === "transcript" ? (
+                      <div className="segmented review-filters interactive-filters" role="tablist" aria-label="Review filters">
+                        <button className={reviewFilter === "all" ? "active" : ""} type="button" onClick={() => setReviewFilter("all")}>
+                          All
+                        </button>
+                        <button
+                          className={reviewFilter === "needs-review" ? "active" : ""}
+                          type="button"
+                          onClick={() => setReviewFilter("needs-review")}
+                        >
+                          Review
+                        </button>
+                        <button
+                          className={reviewFilter === "approved" ? "active" : ""}
+                          type="button"
+                          onClick={() => setReviewFilter("approved")}
+                        >
+                          Approved
+                        </button>
+                        <button
+                          className={reviewFilter === "edited" ? "active" : ""}
+                          type="button"
+                          onClick={() => setReviewFilter("edited")}
+                        >
+                          Edited
+                        </button>
+                      </div>
+                    ) : null}
+                    <div className="export-actions interactive-export-actions">
+                      <button type="button" onClick={() => exportResult("txt")}>TXT</button>
+                      <button type="button" onClick={() => exportResult("srt")}>SRT</button>
+                      <button type="button" onClick={() => exportResult("json")}>JSON</button>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
             </>
           ) : (
             <EmptyState />
@@ -1538,4 +1658,82 @@ function HistoryIcon() {
       <path d="M12 7.5v5l3 2" />
     </svg>
   );
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m6 6 12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
+  );
+}
+
+interface YoutubePlayer {
+  destroy(): void;
+  getCurrentTime(): number;
+  playVideo(): void;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+}
+
+declare global {
+  interface Window {
+    onYouTubeIframeAPIReady?: () => void;
+    YT?: {
+      Player: new (
+        element: HTMLElement,
+        options: {
+          videoId: string;
+          playerVars?: Record<string, number>;
+        }
+      ) => YoutubePlayer;
+    };
+  }
+}
+
+let youtubeIframeApiPromise: Promise<void> | null = null;
+
+function loadYouTubeIframeApi(): Promise<void> {
+  if (window.YT?.Player) {
+    return Promise.resolve();
+  }
+
+  if (youtubeIframeApiPromise) {
+    return youtubeIframeApiPromise;
+  }
+
+  youtubeIframeApiPromise = new Promise<void>((resolve) => {
+    const existingScript = document.querySelector<HTMLScriptElement>('script[src="https://www.youtube.com/iframe_api"]');
+    if (!existingScript) {
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(script);
+    }
+
+    const previous = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      previous?.();
+      resolve();
+    };
+  });
+
+  return youtubeIframeApiPromise;
+}
+
+function findSentenceIndexForTime(sentences: TranscriptionResult["sentences"], currentTime: number): number | null {
+  if (sentences.length === 0) {
+    return null;
+  }
+
+  for (let index = 0; index < sentences.length; index += 1) {
+    const sentence = sentences[index];
+    const next = sentences[index + 1];
+    const endBoundary = next ? next.startSeconds : sentence.endSeconds + 0.75;
+
+    if (currentTime >= sentence.startSeconds && currentTime < endBoundary) {
+      return index;
+    }
+  }
+
+  return currentTime < sentences[0].startSeconds ? 0 : sentences.length - 1;
 }

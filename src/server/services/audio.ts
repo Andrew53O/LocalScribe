@@ -38,7 +38,6 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
     input.tools.ytDlpBin,
     [
       "--no-playlist",
-      "--force-keyframes-at-cuts",
       "--download-sections",
       section,
       "-f",
@@ -66,12 +65,12 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
       "-i",
       path.join(input.workDir, sourceFile),
       "-vn",
+      "-c:a",
+      "pcm_s16le",
       "-ac",
       "1",
       "-ar",
       "16000",
-      "-af",
-      "loudnorm",
       normalizedPath
     ],
     { timeoutMs: 1000 * 60 * 20 }

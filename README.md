@@ -11,8 +11,10 @@ The default path is fully local with `whisper.cpp`. OpenAI remains optional if y
 - Fetches video duration before starting
 - Validates time ranges against the actual video length
 - Supports local CPU and NVIDIA GPU transcription
+- Refreshes GPU runtime status while jobs are running
 - Shows sentence-level transcript with timestamps
 - Embeds a synced YouTube player for click-to-seek playback
+- Includes an interactive mode with a collapsed sidebar rail and synced transcript scrolling
 - Provides an editable paragraph transcript view
 - Includes a local review workflow for approve/edit/reset
 - Adds heuristic speaker labels
@@ -104,7 +106,7 @@ flowchart LR
 4. User selects `Start` and `End`
 5. Backend validates range against the real video duration
 6. Backend extracts only the selected section
-7. `ffmpeg` converts audio to mono `16 kHz`
+7. `ffmpeg` converts audio to mono `16 kHz` using a faster direct PCM conversion path
 8. `whisper.cpp` or optional OpenAI transcribes
 9. Server builds sentences, heuristics, highlights, and speaker labels
 10. Client renders transcript, paragraph view, and playback sync
@@ -115,6 +117,24 @@ flowchart LR
 2. Entry includes title, URL, thumbnail, and saved time
 3. User can search by title or URL
 4. Clicking a history item restores that URL back into the transcribe form
+
+### Extraction Performance
+
+The slowest stage is usually YouTube audio extraction, not Whisper inference.
+
+Current build changes:
+
+- removes the previous `loudnorm` filter pass
+- converts directly to mono `16 kHz` PCM
+- drops an extra cut-related download flag that did not help audio-only extraction
+
+What still limits speed:
+
+- YouTube network throughput
+- `yt-dlp` section extraction overhead
+- source stream responsiveness for long videos
+
+If extraction is still the bottleneck, the next meaningful optimization would be caching downloaded source audio for videos you revisit.
 
 ## Requirements
 
@@ -223,7 +243,7 @@ The app verifies these local prerequisites:
 - `whisper-cli`
 - Whisper model file
 
-If anything is missing or broken, the UI shows which check failed.
+If anything is missing or broken, the UI shows which check failed. The GPU status line also refreshes while jobs are running so you can tell whether CUDA is active or the app has fallen back to CPU mode.
 
 ## Usage
 
@@ -243,12 +263,14 @@ If anything is missing or broken, the UI shows which check failed.
 Transcript view supports:
 
 - click-to-seek playback
-- jump-to-active playback that also brings the active transcript line into view
+- interactive mode playback with synced transcript scrolling
 - speaker labels
 - review filters
 - compact symbol actions for approve / needs-review / edit / reset
 
 The paragraph view is designed for freeform editing and copying.
+
+In the current UI, the settings control is an icon button in the control panel header, and interactive mode shifts the workspace into a player-first layout with the transcript controls moved to the bottom.
 
 ## History
 

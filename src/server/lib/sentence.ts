@@ -69,6 +69,7 @@ export function segmentsToSentences(segments: WhisperSegment[], languageHint: La
         endSeconds: currentEnd,
         text: piece.text,
         detectedLanguage: detectLanguage(piece.text, languageHint),
+        speakerLabel: "",
         qualityStatus: "ok",
         highlights: []
       });

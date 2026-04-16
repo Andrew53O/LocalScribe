@@ -30,6 +30,7 @@ export interface TranscriptSentence {
   endSeconds: number;
   text: string;
   detectedLanguage: LanguageHint;
+  speakerLabel: string;
   qualityStatus: "ok" | "review";
   highlights: Highlight[];
 }

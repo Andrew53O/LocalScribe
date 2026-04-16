@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { JobRecord, TranscriptionRequest, TranscriptionResult, WhisperSegment } from "../../shared/types.js";
+import { applyHeuristicSpeakerDiarization } from "../lib/diarization.js";
 import { applyQualityHighlights } from "../lib/quality.js";
 import { segmentsToSentences } from "../lib/sentence.js";
 import { validateRange } from "../lib/time.js";
@@ -74,7 +75,8 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
 
     updateJob(jobId, { progress: 75, message: "Preparing transcript review" });
     const offsetSegments = offsetSegmentsToVideoTime(rawSegments, range.startSeconds, request.convertToTraditional);
-    const sentences = applyQualityHighlights(segmentsToSentences(offsetSegments, request.languageHint), offsetSegments);
+    const diarizedSentences = applyHeuristicSpeakerDiarization(segmentsToSentences(offsetSegments, request.languageHint));
+    const sentences = applyQualityHighlights(diarizedSentences, offsetSegments);
 
     const result: TranscriptionResult = {
       sourceUsed: "audio-transcription",

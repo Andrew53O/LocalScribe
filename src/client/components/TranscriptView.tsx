@@ -18,6 +18,7 @@ export function TranscriptView({ sentences, activeSentenceIndex, onSeek }: Props
             <button className="timestamp-link" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
               {formatTime(sentence.startSeconds)}
             </button>
+            <span>{sentence.speakerLabel}</span>
             <span>{sentence.detectedLanguage}</span>
             {sentence.qualityStatus === "review" ? <strong>Review</strong> : <span>OK</span>}
           </div>

@@ -21,6 +21,7 @@ interface LocalSettings {
 type ResultView = "transcript" | "plain";
 
 interface VideoMetadata {
+  id?: string;
   durationSeconds: number;
   title?: string;
 }
@@ -53,6 +54,16 @@ interface ReviewDraft {
   note: string;
 }
 
+interface HistoryItem {
+  youtubeUrl: string;
+  title: string;
+  thumbnailUrl: string;
+  durationSeconds?: number;
+  savedAt: string;
+}
+
+type ControlView = "transcribe" | "history";
+
 const defaultLocalSettings: LocalSettings = {
   defaultLanguage: "auto",
   defaultModel: "large-v3-turbo-q8_0"
@@ -81,6 +92,9 @@ export function App() {
   const [reviewDrafts, setReviewDrafts] = useState<ReviewDraft[]>([]);
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [editingSentenceIndex, setEditingSentenceIndex] = useState<number | null>(null);
+  const [controlView, setControlView] = useState<ControlView>("transcribe");
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>(() => loadHistoryItems());
+  const [historyQuery, setHistoryQuery] = useState("");
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
@@ -124,6 +138,17 @@ export function App() {
     }),
     [reviewDrafts]
   );
+  const filteredHistoryItems = useMemo(() => {
+    const query = historyQuery.trim().toLowerCase();
+
+    if (!query) {
+      return historyItems;
+    }
+
+    return historyItems.filter(
+      (item) => item.title.toLowerCase().includes(query) || item.youtubeUrl.toLowerCase().includes(query)
+    );
+  }, [historyItems, historyQuery]);
 
   useEffect(() => {
     fetch("/api/health")
@@ -135,6 +160,10 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("yt-transcriber-settings", JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem("yt-transcriber-history", JSON.stringify(historyItems));
+  }, [historyItems]);
 
   useEffect(() => {
     if (!result) {
@@ -156,6 +185,23 @@ export function App() {
       }))
     );
   }, [result]);
+
+  useEffect(() => {
+    if (!result || !form.youtubeUrl.trim()) {
+      return;
+    }
+
+    const historyItem = createHistoryItem(form.youtubeUrl, videoMetadata);
+
+    setHistoryItems((current) => {
+      const next = [
+        historyItem,
+        ...current.filter((item) => item.youtubeUrl !== historyItem.youtubeUrl)
+      ];
+
+      return next.slice(0, 30);
+    });
+  }, [result, form.youtubeUrl, videoMetadata]);
 
   useEffect(() => {
     const youtubeUrl = form.youtubeUrl.trim();
@@ -271,6 +317,7 @@ export function App() {
     setResult(null);
     setCopyStatus("");
     setResultView("transcript");
+    setControlView("transcribe");
     setDisplayedProgress(0);
     setElapsedNow(Date.now());
     setEditingSentenceIndex(null);
@@ -414,15 +461,69 @@ export function App() {
     );
   }
 
+  function restoreHistoryItem(item: HistoryItem) {
+    setForm((current) => ({
+      ...current,
+      youtubeUrl: item.youtubeUrl
+    }));
+    setControlView("transcribe");
+  }
+
   return (
     <main className="app-shell">
       <section className="workspace">
         <aside className="control-panel" aria-label="Transcription controls">
+          <div className="segmented control-tabs" role="tablist" aria-label="Control views">
+            <button className={controlView === "transcribe" ? "active" : ""} type="button" onClick={() => setControlView("transcribe")}>
+              Transcribe
+            </button>
+            <button className={controlView === "history" ? "active" : ""} type="button" onClick={() => setControlView("history")}>
+              History
+            </button>
+          </div>
           <div className="brand-block">
             <p className="eyebrow">Local audio transcription</p>
             <h1>YouTube Segment Transcriber</h1>
             <p className="subtle">Audio-first, subtitle-free, multilingual transcript review.</p>
           </div>
+
+          {controlView === "history" ? (
+            <section className="history-panel" aria-label="History">
+              <label>
+                Search history
+                <input
+                  value={historyQuery}
+                  onChange={(event) => setHistoryQuery(event.target.value)}
+                  placeholder="Search title or URL"
+                />
+              </label>
+
+              <div className="history-list">
+                {filteredHistoryItems.length > 0 ? (
+                  filteredHistoryItems.map((item) => (
+                    <button className="history-item" key={`${item.youtubeUrl}-${item.savedAt}`} type="button" onClick={() => restoreHistoryItem(item)}>
+                      <img alt="" src={item.thumbnailUrl} loading="lazy" />
+                      <div className="history-item-body">
+                        <strong>{item.title}</strong>
+                        <span>{item.youtubeUrl}</span>
+                        <div className="history-item-meta">
+                          <span>{item.durationSeconds ? formatDuration(item.durationSeconds) : "Unknown length"}</span>
+                          <span>{formatSavedAt(item.savedAt)}</span>
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="empty-history">
+                    <p className="eyebrow">History</p>
+                    <h2>No saved videos yet</h2>
+                    <p>Completed transcriptions are saved locally with thumbnail, title, and link.</p>
+                  </div>
+                )}
+              </div>
+            </section>
+          ) : (
+            <>
 
           <label>
             YouTube URL
@@ -573,6 +674,8 @@ export function App() {
           <button className="primary" type="button" onClick={submit} disabled={isWorking || Boolean(timeRangeError)}>
             {isWorking ? "Transcribing..." : "Transcribe Segment"}
           </button>
+            </>
+          )}
         </aside>
 
         <section className="result-panel" aria-label="Transcript result">
@@ -827,6 +930,42 @@ function formatDuration(totalSeconds: number): string {
   return [hours, minutes, seconds]
     .map((part) => String(part).padStart(2, "0"))
     .join(":");
+}
+
+function loadHistoryItems(): HistoryItem[] {
+  try {
+    const raw = localStorage.getItem("yt-transcriber-history");
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as HistoryItem[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function createHistoryItem(youtubeUrl: string, metadata: VideoMetadata | null): HistoryItem {
+  const videoId = metadata?.id ?? extractYoutubeVideoId(youtubeUrl) ?? "unknown";
+
+  return {
+    youtubeUrl,
+    title: metadata?.title?.trim() || youtubeUrl,
+    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    durationSeconds: metadata?.durationSeconds,
+    savedAt: new Date().toISOString()
+  };
+}
+
+function formatSavedAt(value: string): string {
+  const date = new Date(value);
+
+  if (!Number.isFinite(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString();
 }
 
 function createPlayerState(youtubeUrl: string): PlayerState | null {

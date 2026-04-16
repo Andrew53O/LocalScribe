@@ -61,6 +61,10 @@ button:disabled {
   border-radius: 8px;
 }
 
+.control-tabs {
+  margin-bottom: 4px;
+}
+
 .result-panel {
   padding: 24px;
   border: 1px solid #d8ded3;
@@ -330,6 +334,73 @@ progress {
 .plain-transcript textarea {
   min-height: 180px;
   line-height: 1.6;
+}
+
+.history-panel {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 136px 1fr;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #d8ded3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: inherit;
+  text-align: left;
+}
+
+.history-item img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #d8ded3;
+}
+
+.history-item-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.history-item-body strong,
+.history-item-body span {
+  overflow-wrap: anywhere;
+}
+
+.history-item-body span {
+  color: #607064;
+  font-size: 13px;
+}
+
+.history-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.empty-history {
+  display: grid;
+  place-content: center;
+  min-height: 220px;
+  text-align: center;
+}
+
+.empty-history h2 {
+  margin: 0;
 }
 
 .review-toolbar {

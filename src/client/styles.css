@@ -73,6 +73,14 @@ button:disabled {
   align-items: center;
 }
 
+.top-action-bar {
+  margin-top: -4px;
+}
+
+.top-primary {
+  width: 100%;
+}
+
 .result-panel {
   padding: 24px;
   border: 1px solid #d8ded3;
@@ -146,6 +154,11 @@ textarea {
 .speed-settings h2 {
   margin: 0;
   font-size: 18px;
+}
+
+.settings-divider {
+  height: 1px;
+  background: #d8ded3;
 }
 
 .speed-grid {
@@ -344,6 +357,13 @@ progress {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+}
+
+.player-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .player-header h3 {
@@ -593,10 +613,12 @@ progress {
 }
 
 .sentence-actions {
-  display: grid;
-  grid-auto-rows: min-content;
+  display: flex;
+  flex-wrap: nowrap;
   gap: 8px;
   align-content: start;
+  align-items: center;
+  justify-self: end;
 }
 
 .sentence-actions button {
@@ -671,6 +693,35 @@ mark.danger {
   .sentence-actions {
     display: flex;
     flex-wrap: wrap;
+  }
+}
+
+@media (min-width: 901px) {
+  .result-panel.focus-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    align-items: start;
+    column-gap: 20px;
+  }
+
+  .result-panel.focus-layout .status-bar {
+    grid-column: 1 / -1;
+  }
+
+  .result-panel.focus-layout .player-panel {
+    position: sticky;
+    top: 24px;
+    grid-column: 1;
+    grid-row: 2 / span 4;
+    margin-bottom: 0;
+  }
+
+  .result-panel.focus-layout .result-header,
+  .result-panel.focus-layout .result-tabs,
+  .result-panel.focus-layout .review-toolbar,
+  .result-panel.focus-layout .sentence-list,
+  .result-panel.focus-layout .plain-transcript {
+    grid-column: 2;
   }
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GpuStatus, JobRecord, LanguageHint, LocalModel, Provider, TranscriptionResult } from "../shared/types";
+import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalSpeedSettings, Provider, TranscriptionResult } from "../shared/types";
 import { TranscriptView } from "./components/TranscriptView";
 
 const initialForm = {
@@ -22,6 +22,7 @@ const initialForm = {
 interface LocalSettings {
   defaultLanguage: LanguageHint;
   defaultModel: LocalModel;
+  defaultSpeed: LocalSpeedSettings;
 }
 
 type ResultView = "transcript" | "plain";
@@ -73,7 +74,13 @@ type ControlView = "transcribe" | "history";
 
 const defaultLocalSettings: LocalSettings = {
   defaultLanguage: "auto",
-  defaultModel: "large-v3-turbo-q8_0"
+  defaultModel: "large-v3-turbo-q8_0",
+  defaultSpeed: {
+    beamSize: 5,
+    bestOf: 5,
+    threads: 4,
+    vadEnabled: false
+  }
 };
 
 export function App() {
@@ -82,7 +89,8 @@ export function App() {
   const [form, setForm] = useState(() => ({
     ...initialForm,
     languageHint: settings.defaultLanguage,
-    localModel: settings.defaultModel
+    localModel: settings.defaultModel,
+    localSpeed: settings.defaultSpeed
   }));
   const [job, setJob] = useState<JobRecord | null>(null);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
@@ -105,6 +113,7 @@ export function App() {
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>(() => loadHistoryItems());
   const [historyQuery, setHistoryQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [playerFocusMode, setPlayerFocusMode] = useState(false);
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
@@ -331,6 +340,7 @@ export function App() {
     setDisplayedProgress(0);
     setElapsedNow(Date.now());
     setEditingSentenceIndex(null);
+    setPlayerFocusMode(false);
 
     if (timeRangeError) {
       setError(timeRangeError);
@@ -388,6 +398,23 @@ export function App() {
   function updateDefaultModel(defaultModel: LocalModel) {
     setSettings((current) => ({ ...current, defaultModel }));
     setForm((current) => ({ ...current, localModel: defaultModel }));
+  }
+
+  function updateDefaultSpeed<K extends keyof LocalSpeedSettings>(key: K, value: LocalSpeedSettings[K]) {
+    setSettings((current) => ({
+      ...current,
+      defaultSpeed: {
+        ...current.defaultSpeed,
+        [key]: value
+      }
+    }));
+    setForm((current) => ({
+      ...current,
+      localSpeed: {
+        ...current.localSpeed,
+        [key]: value
+      }
+    }));
   }
 
   async function copyPlainTranscript() {
@@ -487,6 +514,7 @@ export function App() {
       return;
     }
 
+    setPlayerFocusMode(true);
     seekToSentence(result.sentences[activeSentenceIndex].startSeconds, activeSentenceIndex);
     window.setTimeout(() => scrollSentenceIntoView(activeSentenceIndex), 120);
   }
@@ -527,6 +555,20 @@ export function App() {
             <h1>YouTube Segment Transcriber</h1>
             <p className="subtle">Audio-first, subtitle-free, multilingual transcript review.</p>
           </div>
+          {controlView === "transcribe" ? (
+            <div className="top-action-bar">
+              <button
+                className={`primary top-primary ${isSubmitting || isWorking ? "busy" : ""}`}
+                type="button"
+                onClick={submit}
+                disabled={isSubmitting || isWorking || Boolean(timeRangeError)}
+                aria-busy={isSubmitting || isWorking}
+              >
+                {isSubmitting || isWorking ? <span className="button-spinner" aria-hidden="true" /> : null}
+                <span>{isSubmitting ? "Starting..." : isWorking ? "Transcribing..." : "Transcribe Segment"}</span>
+              </button>
+            </div>
+          ) : null}
           {showSettings ? (
             <section className="settings-drawer" aria-label="Local settings">
               <div className="settings-drawer-header">
@@ -567,6 +609,54 @@ export function App() {
                   <option value="large-v3">large-v3 - 2.9 GiB</option>
                 </select>
               </label>
+              <div className="settings-divider" />
+              <div>
+                <p className="eyebrow">Local Optimization</p>
+                <h2>Defaults</h2>
+              </div>
+              <div className="speed-grid">
+                <label>
+                  Beam size
+                  <input
+                    inputMode="numeric"
+                    min="1"
+                    max="10"
+                    type="number"
+                    value={settings.defaultSpeed.beamSize}
+                    onChange={(event) => updateDefaultSpeed("beamSize", clampNumber(event.target.value, 1, 10, settings.defaultSpeed.beamSize))}
+                  />
+                </label>
+                <label>
+                  Best of
+                  <input
+                    inputMode="numeric"
+                    min="1"
+                    max="10"
+                    type="number"
+                    value={settings.defaultSpeed.bestOf}
+                    onChange={(event) => updateDefaultSpeed("bestOf", clampNumber(event.target.value, 1, 10, settings.defaultSpeed.bestOf))}
+                  />
+                </label>
+                <label>
+                  Threads
+                  <input
+                    inputMode="numeric"
+                    min="1"
+                    max="32"
+                    type="number"
+                    value={settings.defaultSpeed.threads}
+                    onChange={(event) => updateDefaultSpeed("threads", clampNumber(event.target.value, 1, 32, settings.defaultSpeed.threads))}
+                  />
+                </label>
+                <label className="checkbox-row speed-toggle">
+                  <input
+                    type="checkbox"
+                    checked={settings.defaultSpeed.vadEnabled}
+                    onChange={(event) => updateDefaultSpeed("vadEnabled", event.target.checked)}
+                  />
+                  VAD silence skip
+                </label>
+              </div>
             </section>
           ) : null}
 
@@ -687,90 +777,6 @@ export function App() {
             </select>
           </label>
 
-          {form.provider === "local" ? (
-            <section className="speed-settings" aria-label="Local speed settings">
-              <div>
-                <p className="eyebrow">Speed</p>
-                <h2>Local transcription</h2>
-              </div>
-              <div className="speed-grid">
-                <label>
-                  Beam size
-                  <input
-                    inputMode="numeric"
-                    min="1"
-                    max="10"
-                    type="number"
-                    value={form.localSpeed.beamSize}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        localSpeed: {
-                          ...form.localSpeed,
-                          beamSize: clampNumber(event.target.value, 1, 10, form.localSpeed.beamSize)
-                        }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Best of
-                  <input
-                    inputMode="numeric"
-                    min="1"
-                    max="10"
-                    type="number"
-                    value={form.localSpeed.bestOf}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        localSpeed: {
-                          ...form.localSpeed,
-                          bestOf: clampNumber(event.target.value, 1, 10, form.localSpeed.bestOf)
-                        }
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Threads
-                  <input
-                    inputMode="numeric"
-                    min="1"
-                    max="32"
-                    type="number"
-                    value={form.localSpeed.threads}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        localSpeed: {
-                          ...form.localSpeed,
-                          threads: clampNumber(event.target.value, 1, 32, form.localSpeed.threads)
-                        }
-                      })
-                    }
-                  />
-                </label>
-                <label className="checkbox-row speed-toggle">
-                  <input
-                    type="checkbox"
-                    checked={form.localSpeed.vadEnabled}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        localSpeed: {
-                          ...form.localSpeed,
-                          vadEnabled: event.target.checked
-                        }
-                      })
-                    }
-                  />
-                  VAD silence skip
-                </label>
-              </div>
-            </section>
-          ) : null}
-
           <label>
             Glossary
             <textarea
@@ -814,21 +820,11 @@ export function App() {
           {timeRangeError ? <p className="error">{timeRangeError}</p> : null}
           {job?.status === "failed" ? <p className="error">{job.error}</p> : null}
 
-          <button
-            className={`primary ${isSubmitting || isWorking ? "busy" : ""}`}
-            type="button"
-            onClick={submit}
-            disabled={isSubmitting || isWorking || Boolean(timeRangeError)}
-            aria-busy={isSubmitting || isWorking}
-          >
-            {isSubmitting || isWorking ? <span className="button-spinner" aria-hidden="true" /> : null}
-            <span>{isSubmitting ? "Starting..." : isWorking ? "Transcribing..." : "Transcribe Segment"}</span>
-          </button>
             </>
           )}
         </aside>
 
-        <section className="result-panel" aria-label="Transcript result" ref={resultPanelRef}>
+        <section className={`result-panel ${playerFocusMode && playerState ? "focus-layout" : ""}`} aria-label="Transcript result" ref={resultPanelRef}>
           {job ? (
             <div className="status-bar">
               <span>{job.message}</span>
@@ -847,9 +843,16 @@ export function App() {
                       <p className="eyebrow">Playback</p>
                       <h3>Synced YouTube player</h3>
                     </div>
-                    <button type="button" onClick={jumpToActiveSentence}>
-                      Jump to active line
-                    </button>
+                    <div className="player-actions">
+                      {playerFocusMode ? (
+                        <button type="button" onClick={() => setPlayerFocusMode(false)}>
+                          Full transcript view
+                        </button>
+                      ) : null}
+                      <button type="button" onClick={jumpToActiveSentence}>
+                        Jump to active line
+                      </button>
+                    </div>
                   </div>
                   <div className="player-frame-wrap">
                     <iframe
@@ -1051,7 +1054,13 @@ function loadLocalSettings(): LocalSettings {
 
     return {
       defaultLanguage: isLanguageHint(parsed.defaultLanguage) ? parsed.defaultLanguage : defaultLocalSettings.defaultLanguage,
-      defaultModel: isLocalModel(parsed.defaultModel) ? parsed.defaultModel : defaultLocalSettings.defaultModel
+      defaultModel: isLocalModel(parsed.defaultModel) ? parsed.defaultModel : defaultLocalSettings.defaultModel,
+      defaultSpeed: {
+        beamSize: clampLoadedNumber(parsed.defaultSpeed?.beamSize, 1, 10, defaultLocalSettings.defaultSpeed.beamSize),
+        bestOf: clampLoadedNumber(parsed.defaultSpeed?.bestOf, 1, 10, defaultLocalSettings.defaultSpeed.bestOf),
+        threads: clampLoadedNumber(parsed.defaultSpeed?.threads, 1, 32, defaultLocalSettings.defaultSpeed.threads),
+        vadEnabled: typeof parsed.defaultSpeed?.vadEnabled === "boolean" ? parsed.defaultSpeed.vadEnabled : defaultLocalSettings.defaultSpeed.vadEnabled
+      }
     };
   } catch {
     return defaultLocalSettings;
@@ -1100,6 +1109,12 @@ function clampNumber(value: string, min: number, max: number, fallback: number):
   }
 
   return Math.min(max, Math.max(min, parsed));
+}
+
+function clampLoadedNumber(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.round(value)))
+    : fallback;
 }
 
 function formatGpuStatus(gpuStatus: GpuStatus): string {

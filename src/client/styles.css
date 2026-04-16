@@ -615,15 +615,15 @@ progress {
 .sentence-actions {
   display: flex;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: 6px;
   align-content: start;
   align-items: center;
   justify-self: end;
 }
 
 .sentence-actions button {
-  min-width: 38px;
-  min-height: 38px;
+  min-width: 34px;
+  min-height: 34px;
   border: 1px solid #bcc8b6;
   border-radius: 6px;
   background: #f8faf6;

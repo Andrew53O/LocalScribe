@@ -125,13 +125,13 @@ export function App() {
   const [isControlPanelCollapsed, setIsControlPanelCollapsed] = useState(false);
 
   const isWorking = job?.status === "queued" || job?.status === "running";
+  const playerState = useMemo(() => createPlayerState(form.youtubeUrl), [form.youtubeUrl]);
   const isInteractiveMode = playerFocusMode && Boolean(playerState);
   const showCollapsedControlPanel = isInteractiveMode && isControlPanelCollapsed;
   const progressLabel = displayedProgress.toFixed(1);
   const elapsedLabel = job ? formatElapsedTime(job.createdAt, job.status === "completed" || job.status === "failed" ? job.updatedAt : elapsedNow) : "";
   const timeRangeError = getTimeRangeError(form.startTime, form.endTime, videoMetadata?.durationSeconds);
   const reviewCount = useMemo(() => result?.sentences.filter((sentence) => sentence.qualityStatus === "review").length ?? 0, [result]);
-  const playerState = useMemo(() => createPlayerState(form.youtubeUrl), [form.youtubeUrl]);
   const transcriptSentences = useMemo(() => {
     if (!result) {
       return [];
@@ -178,11 +178,31 @@ export function App() {
   }, [historyItems, historyQuery]);
 
   useEffect(() => {
-    fetch("/api/health")
-      .then((response) => response.json())
-      .then(setHealth)
-      .catch(() => setHealth(null));
-  }, []);
+    let cancelled = false;
+
+    async function refreshHealth() {
+      try {
+        const response = await fetch("/api/health");
+        const payload = (await response.json()) as HealthStatus;
+
+        if (!cancelled) {
+          setHealth(payload);
+        }
+      } catch {
+        if (!cancelled) {
+          setHealth(null);
+        }
+      }
+    }
+
+    void refreshHealth();
+    const intervalId = window.setInterval(refreshHealth, isWorking ? 2000 : 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isWorking]);
 
   useEffect(() => {
     localStorage.setItem("yt-transcriber-settings", JSON.stringify(settings));
@@ -987,7 +1007,8 @@ export function App() {
           ) : null}
 
           {health?.gpuStatus ? (
-            <p className="subtle gpu-status">
+            <p className="subtle gpu-status live">
+              <span className="gpu-pulse" aria-hidden="true" />
               {formatGpuStatus(health.gpuStatus)}
             </p>
           ) : null}

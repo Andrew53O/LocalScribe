@@ -50,15 +50,19 @@ export function TranscriptView({
             key={`${sentence.startSeconds}-${index}`}
             data-sentence-index={index}
           >
-            <div className="sentence-meta">
-              <button className="timestamp-link" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
-                {formatTime(sentence.startSeconds)}
-              </button>
-              <span>{sentence.speakerLabel}</span>
-              <span>{sentence.detectedLanguage}</span>
-              {reviewState === "needs-review" ? <strong>Review</strong> : <span>{labelReviewState(reviewState)}</span>}
-            </div>
             <div className="sentence-content">
+              <div className="sentence-meta-inline">
+                <button className="timestamp-link" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
+                  {formatTime(sentence.startSeconds)}
+                </button>
+                {sentence.speakerLabel ? <span className="meta-chip">{sentence.speakerLabel}</span> : null}
+                {sentence.detectedLanguage ? <span className="meta-chip">{sentence.detectedLanguage}</span> : null}
+                {reviewState === "needs-review" ? (
+                  <strong className="meta-chip warning-chip">Review</strong>
+                ) : reviewState !== "pending" ? (
+                  <span className="meta-chip">{labelReviewState(reviewState)}</span>
+                ) : null}
+              </div>
               {editingSentenceIndex === index ? (
                 <textarea
                   className="sentence-editor"

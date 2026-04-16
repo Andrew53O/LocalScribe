@@ -18,6 +18,8 @@ interface LocalSettings {
   defaultModel: LocalModel;
 }
 
+type ResultView = "transcript" | "plain";
+
 const defaultLocalSettings: LocalSettings = {
   defaultLanguage: "auto",
   defaultModel: "large-v3-turbo-q8_0"
@@ -38,6 +40,7 @@ export function App() {
   const [elapsedNow, setElapsedNow] = useState(Date.now());
   const [plainTranscript, setPlainTranscript] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
+  const [resultView, setResultView] = useState<ResultView>("transcript");
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
@@ -131,6 +134,7 @@ export function App() {
     setError("");
     setResult(null);
     setCopyStatus("");
+    setResultView("transcript");
     setDisplayedProgress(0);
     setElapsedNow(Date.now());
 
@@ -351,23 +355,42 @@ export function App() {
                   <button type="button" onClick={() => exportResult("json")}>JSON</button>
                 </div>
               </div>
-              <section className="plain-transcript" aria-label="Editable plain transcript">
-                <div className="plain-transcript-header">
-                  <div>
-                    <p className="eyebrow">Plain Text</p>
-                    <h3>Editable paragraph transcript</h3>
+              <div className="segmented result-tabs" role="tablist" aria-label="Result views">
+                <button
+                  className={resultView === "transcript" ? "active" : ""}
+                  type="button"
+                  onClick={() => setResultView("transcript")}
+                >
+                  Transcript
+                </button>
+                <button
+                  className={resultView === "plain" ? "active" : ""}
+                  type="button"
+                  onClick={() => setResultView("plain")}
+                >
+                  Editable Paragraph
+                </button>
+              </div>
+              {resultView === "transcript" ? (
+                <TranscriptView sentences={result.sentences} />
+              ) : (
+                <section className="plain-transcript" aria-label="Editable plain transcript">
+                  <div className="plain-transcript-header">
+                    <div>
+                      <p className="eyebrow">Plain Text</p>
+                      <h3>Editable paragraph transcript</h3>
+                    </div>
+                    <button type="button" onClick={copyPlainTranscript}>
+                      {copyStatus || "Copy"}
+                    </button>
                   </div>
-                  <button type="button" onClick={copyPlainTranscript}>
-                    {copyStatus || "Copy"}
-                  </button>
-                </div>
-                <textarea
-                  value={plainTranscript}
-                  onChange={(event) => setPlainTranscript(event.target.value)}
-                  spellCheck="false"
-                />
-              </section>
-              <TranscriptView sentences={result.sentences} />
+                  <textarea
+                    value={plainTranscript}
+                    onChange={(event) => setPlainTranscript(event.target.value)}
+                    spellCheck="false"
+                  />
+                </section>
+              )}
             </>
           ) : (
             <EmptyState />

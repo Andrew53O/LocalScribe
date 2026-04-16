@@ -21,6 +21,8 @@ export function App() {
   const [error, setError] = useState("");
   const [displayedProgress, setDisplayedProgress] = useState(0);
   const [elapsedNow, setElapsedNow] = useState(Date.now());
+  const [plainTranscript, setPlainTranscript] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
@@ -36,6 +38,15 @@ export function App() {
       .then(setHealth)
       .catch(() => setHealth(null));
   }, []);
+
+  useEffect(() => {
+    if (!result) {
+      setPlainTranscript("");
+      return;
+    }
+
+    setPlainTranscript(result.sentences.map((sentence) => sentence.text).join("\n\n"));
+  }, [result]);
 
   useEffect(() => {
     if (!job || job.status === "completed" || job.status === "failed") {
@@ -100,6 +111,7 @@ export function App() {
   async function submit() {
     setError("");
     setResult(null);
+    setCopyStatus("");
     setDisplayedProgress(0);
     setElapsedNow(Date.now());
 
@@ -129,6 +141,16 @@ export function App() {
     }
 
     window.open(`/api/transcriptions/${job.id}/result?format=${format}`, "_blank");
+  }
+
+  async function copyPlainTranscript() {
+    if (!plainTranscript.trim()) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(plainTranscript);
+    setCopyStatus("Copied");
+    window.setTimeout(() => setCopyStatus(""), 1500);
   }
 
   return (
@@ -262,6 +284,22 @@ export function App() {
                   <button type="button" onClick={() => exportResult("json")}>JSON</button>
                 </div>
               </div>
+              <section className="plain-transcript" aria-label="Editable plain transcript">
+                <div className="plain-transcript-header">
+                  <div>
+                    <p className="eyebrow">Plain Text</p>
+                    <h3>Editable paragraph transcript</h3>
+                  </div>
+                  <button type="button" onClick={copyPlainTranscript}>
+                    {copyStatus || "Copy"}
+                  </button>
+                </div>
+                <textarea
+                  value={plainTranscript}
+                  onChange={(event) => setPlainTranscript(event.target.value)}
+                  spellCheck="false"
+                />
+              </section>
               <TranscriptView sentences={result.sentences} />
             </>
           ) : (

@@ -224,6 +224,42 @@ progress {
   font-weight: 750;
 }
 
+.plain-transcript {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #d8ded3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.plain-transcript-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.plain-transcript h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.plain-transcript button {
+  border: 1px solid #bcc8b6;
+  border-radius: 6px;
+  background: #f8faf6;
+  color: #213026;
+  padding: 9px 14px;
+  font-weight: 750;
+}
+
+.plain-transcript textarea {
+  min-height: 180px;
+  line-height: 1.6;
+}
+
 .empty-state {
   display: grid;
   place-content: center;

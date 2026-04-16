@@ -32,6 +32,7 @@ export interface TranscriptionRequest {
   localModel: LocalModel;
   glossary?: string;
   convertToTraditional?: boolean;
+  localSpeed: LocalSpeedSettings;
 }
 
 export interface Highlight {

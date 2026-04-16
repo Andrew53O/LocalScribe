@@ -32,6 +32,7 @@ app.get("/api/health", async () => {
     ok: true,
     localConfigured: localStatus.ok,
     localPrerequisites: localStatus.tools,
+    gpuStatus: localStatus.gpu,
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY)
   };
 });

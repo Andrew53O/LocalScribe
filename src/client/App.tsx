@@ -110,10 +110,7 @@ export function App() {
   const progressLabel = displayedProgress.toFixed(1);
   const elapsedLabel = job ? formatElapsedTime(job.createdAt, job.status === "completed" || job.status === "failed" ? job.updatedAt : elapsedNow) : "";
   const timeRangeError = getTimeRangeError(form.startTime, form.endTime, videoMetadata?.durationSeconds);
-  const reviewCount = useMemo(
-    () => result?.sentences.filter((sentence) => sentence.qualityStatus === "review").length ?? 0,
-    [result]
-  );
+  const reviewCount = useMemo(() => result?.sentences.filter((sentence) => sentence.qualityStatus === "review").length ?? 0, [result]);
   const playerState = useMemo(() => createPlayerState(form.youtubeUrl), [form.youtubeUrl]);
   const transcriptSentences = useMemo(() => {
     if (!result) {
@@ -805,6 +802,12 @@ export function App() {
                   ))}
               </ul>
             </div>
+          ) : null}
+
+          {health?.gpuStatus ? (
+            <p className="subtle gpu-status">
+              {formatGpuStatus(health.gpuStatus)}
+            </p>
           ) : null}
 
           {error ? <p className="error">{error}</p> : null}

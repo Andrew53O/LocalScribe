@@ -1,30 +1,30 @@
 # YouTube Segment Transcriber
 
-Local-first web app for transcribing selected parts of YouTube videos from audio. It is built for videos with no subtitles, supports English, Traditional Chinese (Taiwan), and Indonesian, and preserves natural code-switching when speakers mix English into Mandarin or Indonesian.
+Local-first web app for transcribing selected parts of YouTube videos from audio. It is built for videos without subtitles, supports English, Traditional Chinese (Taiwan), and Indonesian, and preserves natural code-switching when speakers mix English into Mandarin or Indonesian.
 
-The app runs locally by default with `whisper.cpp`, and can optionally use the OpenAI API if you add an API key later.
+The default path is fully local with `whisper.cpp`. OpenAI remains optional if you later add an API key.
 
-## Features
+## What It Does
 
-- Transcribe only a selected video range with `HH:MM:SS`
+- Transcribes only the selected time range
 - Works with regular YouTube, Shorts, and `/live/...` URLs
-- Local transcription with `whisper.cpp`
-- Optional NVIDIA GPU acceleration with CUDA/cuBLAS builds
-- Optional OpenAI transcription mode
-- Runtime prerequisite checks for `yt-dlp`, `ffmpeg`, `whisper-cli`, and the model file
-- Video duration lookup and range validation before job start
-- Sentence-by-sentence transcript with timestamps
-- Click-to-play transcript sync with embedded YouTube player
-- Editable plain-text transcript view
-- Quality review workflow with approve/edit/reset states
-- Heuristic speaker diarization (`Speaker 1`, `Speaker 2`)
-- Export as `.txt`, `.srt`, and `.json`
+- Fetches video duration before starting
+- Validates time ranges against the actual video length
+- Supports local CPU and NVIDIA GPU transcription
+- Shows sentence-level transcript with timestamps
+- Embeds a synced YouTube player for click-to-seek playback
+- Provides an editable paragraph transcript view
+- Includes a local review workflow for approve/edit/reset
+- Adds heuristic speaker labels
+- Stores reusable local defaults in browser storage
+- Stores local video history with title, thumbnail, URL, and search
+- Exports `TXT`, `SRT`, and `JSON`
 
-## Tech Stack
+## Stack
 
 - Frontend: React + TypeScript + Vite
 - Backend: Fastify + TypeScript
-- Audio extraction: `yt-dlp`
+- Audio/video metadata: `yt-dlp`
 - Audio normalization: `ffmpeg`
 - Local speech-to-text: `whisper.cpp`
 - Tests: Vitest
@@ -33,35 +33,88 @@ The app runs locally by default with `whisper.cpp`, and can optionally use the O
 
 ```mermaid
 flowchart LR
-    U[User Browser]
-    UI[React Client<br/>Vite]
-    API[Fastify API]
-    YT[YouTube]
-    YTDLP[yt-dlp]
-    FFMPEG[ffmpeg]
-    WHISPER[whisper.cpp<br/>CPU or CUDA]
-    OPENAI[OpenAI API<br/>optional]
-    REVIEW[Sentence Split + Quality Review + Speaker Heuristics]
-    EXPORT[TXT / SRT / JSON Export]
+    subgraph Browser["Browser"]
+        U[User]
+        UI[React UI]
+        LS[(LocalStorage<br/>defaults + history)]
+        YTP[Embedded YouTube Player]
+    end
+
+    subgraph API["Fastify API"]
+        HEALTH[/GET /api/health/]
+        META[/GET /api/video-metadata/]
+        JOBS[/POST /api/transcriptions/]
+        STATUS[/GET /api/transcriptions/:id/]
+        RESULT[/GET /api/transcriptions/:id/result/]
+    end
+
+    subgraph Pipeline["Transcription Pipeline"]
+        YTDLP[yt-dlp]
+        FFMPEG[ffmpeg]
+        WHISPER[whisper.cpp<br/>CPU / CUDA]
+        OPENAI[OpenAI API<br/>optional]
+        REVIEW[Sentence split<br/>Quality review<br/>Speaker heuristics]
+        EXPORT[TXT / SRT / JSON]
+    end
+
+    subgraph External["External Services"]
+        YT[YouTube]
+    end
 
     U --> UI
-    UI -->|POST /api/transcriptions| API
-    UI -->|GET /api/video-metadata| API
-    UI -->|GET /api/transcriptions/:id| API
-    UI -->|GET /api/transcriptions/:id/result| API
+    UI <--> LS
+    UI --> YTP
 
-    API -->|video metadata| YTDLP
+    UI --> HEALTH
+    UI --> META
+    UI --> JOBS
+    UI --> STATUS
+    UI --> RESULT
+
+    META --> YTDLP
+    JOBS --> YTDLP
     YTDLP --> YT
-    API -->|download selected range| YTDLP
-    YTDLP -->|audio stream| FFMPEG
-    FFMPEG -->|mono 16k wav| WHISPER
-    API -->|optional provider| OPENAI
+    YTDLP --> FFMPEG
+    FFMPEG --> WHISPER
+    JOBS -. optional .-> OPENAI
     WHISPER --> REVIEW
     OPENAI --> REVIEW
-    REVIEW --> API
-    API --> EXPORT
-    EXPORT --> UI
+    REVIEW --> RESULT
+    RESULT --> EXPORT
+    RESULT --> UI
+
+    classDef browser fill:#eef6ff,stroke:#6aa0ff,color:#17345f,stroke-width:1px;
+    classDef api fill:#edfcef,stroke:#58a05d,color:#16351a,stroke-width:1px;
+    classDef pipeline fill:#fff7e8,stroke:#d49b2f,color:#4d3406,stroke-width:1px;
+    classDef external fill:#f7f0ff,stroke:#9d72cf,color:#392058,stroke-width:1px;
+
+    class U,UI,LS,YTP browser;
+    class HEALTH,META,JOBS,STATUS,RESULT api;
+    class YTDLP,FFMPEG,WHISPER,OPENAI,REVIEW,EXPORT pipeline;
+    class YT external;
 ```
+
+## Core Flows
+
+### Transcription
+
+1. User pastes a YouTube URL
+2. Client asks backend for video metadata
+3. Backend calls `yt-dlp --dump-single-json`
+4. User selects `Start` and `End`
+5. Backend validates range against the real video duration
+6. Backend extracts only the selected section
+7. `ffmpeg` converts audio to mono `16 kHz`
+8. `whisper.cpp` or optional OpenAI transcribes
+9. Server builds sentences, heuristics, highlights, and speaker labels
+10. Client renders transcript, paragraph view, and playback sync
+
+### History
+
+1. Completed transcription saves the video entry in browser `localStorage`
+2. Entry includes title, URL, thumbnail, and saved time
+3. User can search by title or URL
+4. Clicking a history item restores that URL back into the transcribe form
 
 ## Requirements
 
@@ -84,13 +137,13 @@ Other useful options:
   - lighter, slightly weaker accuracy
 - `ggml-large-v3.bin`
   - about `2.9 GiB`
-  - heavier, slower, often better accuracy
+  - slower and heavier, sometimes better accuracy
 
 Avoid `.en` models for this project because they are English-only.
 
 ## Setup
 
-1. Install project dependencies:
+1. Install dependencies:
 
    ```powershell
    npm install
@@ -102,18 +155,16 @@ Avoid `.en` models for this project because they are English-only.
    Copy-Item .env.example .env
    ```
 
-3. Install or point to `yt-dlp` and `ffmpeg`.
-
-   Example `.env`:
+3. Set `yt-dlp` and `ffmpeg` paths:
 
    ```env
    YTDLP_BIN=C:\path\to\yt-dlp.exe
    FFMPEG_BIN=C:\path\to\ffmpeg.exe
    ```
 
-4. Download `whisper.cpp` and the model.
+4. Download `whisper.cpp` and a model.
 
-   Example PowerShell commands for CPU build:
+   Example CPU install:
 
    ```powershell
    New-Item -ItemType Directory -Force -Path tools\downloads, tools\whisper.cpp, models
@@ -145,12 +196,12 @@ Avoid `.en` models for this project because they are English-only.
 
 ## NVIDIA GPU Acceleration
 
-This project can use an NVIDIA GPU if `WHISPER_CPP_BIN` points to a CUDA/cuBLAS `whisper-cli.exe`.
+This project supports NVIDIA GPUs when `WHISPER_CPP_BIN` points to a CUDA/cuBLAS `whisper-cli.exe`.
 
-For Windows:
+Example Windows setup:
 
 1. Install an NVIDIA driver
-2. Download a CUDA whisper.cpp build, for example:
+2. Download a CUDA build, for example:
    - `whisper-cublas-12.4.0-bin-x64.zip`
    - `whisper-cublas-11.8.0-bin-x64.zip`
 3. Extract it into an ignored local folder such as `tools\whisper.cpp-cuda`
@@ -161,36 +212,62 @@ For Windows:
    WHISPER_MODEL_PATH=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
    ```
 
-The model file stays the same. Only the executable changes.
+The model file is the same. Only the executable changes.
 
 ## Runtime Checks
 
-On startup and in the UI, the app checks:
+The app verifies these local prerequisites:
 
 - `yt-dlp`
 - `ffmpeg`
 - `whisper-cli`
 - Whisper model file
 
-If any local prerequisite is missing or broken, the UI shows which one failed.
+If anything is missing or broken, the UI shows which check failed.
 
 ## Usage
 
 1. Paste a YouTube URL
-2. Wait for the app to fetch the total video duration
-3. Enter `Start` and `End` times
+2. Wait for video duration lookup
+3. Enter `Start` and `End`
 4. Choose language and model
 5. Click `Transcribe Segment`
-6. Review the result in either:
+6. Review the result in:
    - `Transcript`
    - `Editable Paragraph`
+7. Use `History` in the left panel to reuse prior videos
 
-In transcript view you can:
+## Transcript Review
 
-- click timestamps to seek the embedded YouTube player
-- inspect speaker labels
-- approve, edit, reset, or mark lines for review
-- filter by review state
+Transcript view supports:
+
+- click-to-seek playback
+- speaker labels
+- review filters
+- approve / needs-review / edit / reset actions
+
+The paragraph view is designed for freeform editing and copying.
+
+## History
+
+History is stored in browser `localStorage` and includes:
+
+- title
+- URL
+- thumbnail
+- duration
+- save time
+
+It is local to the browser on that machine.
+
+## Local Settings
+
+The browser stores:
+
+- default language
+- default local model
+
+These values are applied automatically on load.
 
 ## Export Formats
 
@@ -198,22 +275,13 @@ In transcript view you can:
 - `SRT` -> `transcript.srt`
 - `JSON` -> `transcript.json`
 
-## Local Settings
-
-The browser stores these defaults in `localStorage`:
-
-- default language
-- default local model
-
-These defaults are applied automatically when the page loads.
-
 ## Optional OpenAI Mode
 
 If you add `OPENAI_API_KEY`, the UI can use OpenAI as an optional provider. Local mode remains the default.
 
 ## Development
 
-Run the app:
+Run development mode:
 
 ```powershell
 npm run dev
@@ -236,7 +304,7 @@ npm run build
 ```text
 src/
   client/       React UI
-  server/       Fastify API, tool integration, transcript pipeline
+  server/       Fastify API and transcription pipeline
   shared/       Shared TypeScript types
 tests/          Vitest tests
 tools/          Local ignored binaries
@@ -262,4 +330,4 @@ Do not commit local binaries, models, build output, or machine-specific environm
 - Captions are not required.
 - The transcript preserves the spoken language. It does not translate by default.
 - Speaker diarization is currently heuristic, not model-based.
-- The review workflow is local UI state; it does not yet persist to disk.
+- Review state and history are currently local browser state, not server persistence.

@@ -44,6 +44,15 @@ interface HealthStatus {
   openaiConfigured: boolean;
 }
 
+type ReviewState = "pending" | "approved" | "needs-review" | "edited";
+type ReviewFilter = "all" | ReviewState;
+
+interface ReviewDraft {
+  text: string;
+  reviewState: ReviewState;
+  note: string;
+}
+
 const defaultLocalSettings: LocalSettings = {
   defaultLanguage: "auto",
   defaultModel: "large-v3-turbo-q8_0"
@@ -69,6 +78,9 @@ export function App() {
   const [metadataStatus, setMetadataStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [metadataError, setMetadataError] = useState("");
   const [activeSentenceIndex, setActiveSentenceIndex] = useState<number | null>(null);
+  const [reviewDrafts, setReviewDrafts] = useState<ReviewDraft[]>([]);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
+  const [editingSentenceIndex, setEditingSentenceIndex] = useState<number | null>(null);
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
@@ -79,6 +91,39 @@ export function App() {
     [result]
   );
   const playerState = useMemo(() => createPlayerState(form.youtubeUrl), [form.youtubeUrl]);
+  const transcriptSentences = useMemo(() => {
+    if (!result) {
+      return [];
+    }
+
+    return result.sentences.map((sentence, index) => {
+      const draft = reviewDrafts[index];
+      const reviewState = draft?.reviewState ?? (sentence.qualityStatus === "review" ? "needs-review" : "pending");
+
+      return {
+        ...sentence,
+        text: draft?.text ?? sentence.text,
+        qualityStatus: reviewState === "needs-review" ? "review" : "ok"
+      };
+    });
+  }, [result, reviewDrafts]);
+  const visibleSentenceIndices = useMemo(
+    () =>
+      transcriptSentences
+        .map((sentence, index) => ({ sentence, index }))
+        .filter(({ index }) => reviewFilter === "all" || reviewDrafts[index]?.reviewState === reviewFilter)
+        .map(({ index }) => index),
+    [transcriptSentences, reviewDrafts, reviewFilter]
+  );
+  const reviewSummary = useMemo(
+    () => ({
+      pending: reviewDrafts.filter((draft) => draft.reviewState === "pending").length,
+      approved: reviewDrafts.filter((draft) => draft.reviewState === "approved").length,
+      needsReview: reviewDrafts.filter((draft) => draft.reviewState === "needs-review").length,
+      edited: reviewDrafts.filter((draft) => draft.reviewState === "edited").length
+    }),
+    [reviewDrafts]
+  );
 
   useEffect(() => {
     fetch("/api/health")
@@ -95,11 +140,21 @@ export function App() {
     if (!result) {
       setPlainTranscript("");
       setActiveSentenceIndex(null);
+      setReviewDrafts([]);
+      setReviewFilter("all");
+      setEditingSentenceIndex(null);
       return;
     }
 
     setPlainTranscript(result.sentences.map((sentence) => sentence.text).join("\n\n"));
     setActiveSentenceIndex(0);
+    setReviewDrafts(
+      result.sentences.map((sentence) => ({
+        text: sentence.text,
+        reviewState: sentence.qualityStatus === "review" ? "needs-review" : "pending",
+        note: ""
+      }))
+    );
   }, [result]);
 
   useEffect(() => {
@@ -218,6 +273,7 @@ export function App() {
     setResultView("transcript");
     setDisplayedProgress(0);
     setElapsedNow(Date.now());
+    setEditingSentenceIndex(null);
 
     if (timeRangeError) {
       setError(timeRangeError);
@@ -279,6 +335,52 @@ export function App() {
     await navigator.clipboard.writeText(plainTranscript);
     setCopyStatus("Copied");
     window.setTimeout(() => setCopyStatus(""), 1500);
+  }
+
+  function setSentenceReviewState(index: number, reviewState: ReviewState) {
+    setReviewDrafts((current) =>
+      current.map((draft, draftIndex) =>
+        draftIndex === index
+          ? {
+              ...draft,
+              reviewState
+            }
+          : draft
+      )
+    );
+  }
+
+  function updateSentenceText(index: number, text: string) {
+    setReviewDrafts((current) =>
+      current.map((draft, draftIndex) =>
+        draftIndex === index
+          ? {
+              ...draft,
+              text,
+              reviewState: "edited"
+            }
+          : draft
+      )
+    );
+  }
+
+  function resetSentenceText(index: number) {
+    if (!result) {
+      return;
+    }
+
+    setReviewDrafts((current) =>
+      current.map((draft, draftIndex) =>
+        draftIndex === index
+          ? {
+              ...draft,
+              text: result.sentences[index].text,
+              reviewState: result.sentences[index].qualityStatus === "review" ? "needs-review" : "pending"
+            }
+          : draft
+      )
+    );
+    setEditingSentenceIndex(null);
   }
 
   function seekToSentence(seconds: number, index: number) {
@@ -538,11 +640,51 @@ export function App() {
                 </button>
               </div>
               {resultView === "transcript" ? (
-                <TranscriptView
-                  sentences={result.sentences}
+                <>
+                  <section className="review-toolbar" aria-label="Review workflow">
+                    <div className="review-summary">
+                      <span>Pending {reviewSummary.pending}</span>
+                      <span>Needs review {reviewSummary.needsReview}</span>
+                      <span>Approved {reviewSummary.approved}</span>
+                      <span>Edited {reviewSummary.edited}</span>
+                    </div>
+                    <div className="segmented review-filters" role="tablist" aria-label="Review filters">
+                      <button className={reviewFilter === "all" ? "active" : ""} type="button" onClick={() => setReviewFilter("all")}>
+                        All
+                      </button>
+                      <button
+                        className={reviewFilter === "needs-review" ? "active" : ""}
+                        type="button"
+                        onClick={() => setReviewFilter("needs-review")}
+                      >
+                        Needs review
+                      </button>
+                      <button
+                        className={reviewFilter === "approved" ? "active" : ""}
+                        type="button"
+                        onClick={() => setReviewFilter("approved")}
+                      >
+                        Approved
+                      </button>
+                      <button className={reviewFilter === "edited" ? "active" : ""} type="button" onClick={() => setReviewFilter("edited")}>
+                        Edited
+                      </button>
+                    </div>
+                  </section>
+                  <TranscriptView
+                  sentences={transcriptSentences}
+                  visibleSentenceIndices={visibleSentenceIndices}
                   activeSentenceIndex={activeSentenceIndex ?? undefined}
                   onSeek={seekToSentence}
+                  reviewDrafts={reviewDrafts}
+                  editingSentenceIndex={editingSentenceIndex}
+                  onStartEditing={setEditingSentenceIndex}
+                  onStopEditing={() => setEditingSentenceIndex(null)}
+                  onReviewStateChange={setSentenceReviewState}
+                  onDraftTextChange={updateSentenceText}
+                  onResetSentence={resetSentenceText}
                 />
+                </>
               ) : (
                 <section className="plain-transcript" aria-label="Editable plain transcript">
                   <div className="plain-transcript-header">

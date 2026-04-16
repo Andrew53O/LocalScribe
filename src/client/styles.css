@@ -332,6 +332,24 @@ progress {
   line-height: 1.6;
 }
 
+.review-toolbar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.review-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #607064;
+  font-size: 14px;
+}
+
+.review-filters {
+  max-width: 520px;
+}
+
 .empty-state {
   display: grid;
   place-content: center;
@@ -405,6 +423,31 @@ progress {
 .sentence-text {
   line-height: 1.7;
   word-break: break-word;
+}
+
+.sentence-content {
+  display: grid;
+  gap: 12px;
+}
+
+.sentence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sentence-actions button {
+  border: 1px solid #bcc8b6;
+  border-radius: 6px;
+  background: #f8faf6;
+  color: #213026;
+  padding: 7px 11px;
+  font-weight: 700;
+}
+
+.sentence-editor {
+  min-height: 96px;
+  line-height: 1.6;
 }
 
 mark {

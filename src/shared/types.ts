@@ -6,6 +6,23 @@ export type LocalModel = "large-v3-turbo-q8_0" | "large-v3-turbo-q5_0" | "large-
 
 export type JobStatus = "queued" | "running" | "completed" | "failed";
 
+export interface LocalSpeedSettings {
+  beamSize: number;
+  bestOf: number;
+  threads: number;
+  vadEnabled: boolean;
+}
+
+export interface GpuStatus {
+  backend: "cuda" | "cpu";
+  available: boolean;
+  devices: string[];
+  driverVersion?: string;
+  utilizationPercent?: number;
+  memoryUsedMiB?: number;
+  memoryTotalMiB?: number;
+}
+
 export interface TranscriptionRequest {
   youtubeUrl: string;
   startTime: string;
@@ -41,6 +58,9 @@ export interface TranscriptionResult {
   model: string;
   durationSeconds: number;
   sentences: TranscriptSentence[];
+  partial: boolean;
+  completedChunks?: number;
+  totalChunks?: number;
 }
 
 export interface JobRecord {

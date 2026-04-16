@@ -7,7 +7,7 @@ import { applyQualityHighlights } from "../lib/quality.js";
 import { segmentsToSentences } from "../lib/sentence.js";
 import { validateRange } from "../lib/time.js";
 import { convertBasicSimplifiedToTraditional } from "../lib/traditional.js";
-import { extractSegmentAudio } from "./audio.js";
+import { buildChunkPlan, createAudioChunk, extractSegmentAudio } from "./audio.js";
 import { transcribeWithOpenAI } from "./openaiTranscription.js";
 import { transcribeWithWhisper } from "./whisper.js";
 
@@ -53,38 +53,63 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
       }
     });
 
-    updateJob(jobId, { progress: 45, message: "Transcribing audio" });
-    const rawSegments =
-      request.provider === "openai"
-        ? await transcribeWithOpenAI({
-            audioPath,
-            languageHint: request.languageHint,
-            glossary: request.glossary
-          })
-        : await transcribeWithWhisper({
-            audioPath,
-            workDir,
-            languageHint: request.languageHint,
-            glossary: request.glossary,
-            config: {
-              whisperBin: requiredEnv("WHISPER_CPP_BIN"),
-              modelPath: requiredEnv("WHISPER_MODEL_PATH"),
-              modelName: request.localModel
-            }
-          });
+    const chunkPlan = buildChunkPlan(range.durationSeconds);
+    const totalChunks = Math.max(1, chunkPlan.length);
+    const aggregatedSegments: WhisperSegment[] = [];
 
-    updateJob(jobId, { progress: 75, message: "Preparing transcript review" });
-    const offsetSegments = offsetSegmentsToVideoTime(rawSegments, range.startSeconds, request.convertToTraditional);
-    const diarizedSentences = applyHeuristicSpeakerDiarization(segmentsToSentences(offsetSegments, request.languageHint));
-    const sentences = applyQualityHighlights(diarizedSentences, offsetSegments);
+    for (const chunk of chunkPlan) {
+      updateJob(jobId, {
+        progress: 20 + Math.round((chunk.index / totalChunks) * 60),
+        message: `Transcribing chunk ${chunk.index + 1} of ${totalChunks}`
+      });
 
-    const result: TranscriptionResult = {
-      sourceUsed: "audio-transcription",
-      provider: request.provider,
-      model: request.provider === "openai" ? "gpt-4o-transcribe" : request.localModel,
-      durationSeconds: range.durationSeconds,
-      sentences
-    };
+      const chunkAudio = await createAudioChunk(
+        audioPath,
+        chunk.index,
+        chunk.startSeconds,
+        chunk.durationSeconds,
+        workDir,
+        process.env.FFMPEG_BIN || "ffmpeg"
+      );
+
+      const rawSegments =
+        request.provider === "openai"
+          ? await transcribeWithOpenAI({
+              audioPath: chunkAudio.audioPath,
+              languageHint: request.languageHint,
+              glossary: request.glossary
+            })
+          : await transcribeWithWhisper({
+              audioPath: chunkAudio.audioPath,
+              workDir,
+              languageHint: request.languageHint,
+              glossary: request.glossary,
+              config: {
+                whisperBin: requiredEnv("WHISPER_CPP_BIN"),
+                modelPath: requiredEnv("WHISPER_MODEL_PATH"),
+                modelName: request.localModel,
+                speed: request.localSpeed
+              }
+            });
+
+      aggregatedSegments.push(
+        ...offsetSegmentsToVideoTime(
+          rawSegments,
+          range.startSeconds + chunk.startSeconds,
+          request.convertToTraditional
+        )
+      );
+
+      const partialResult = buildResult(request, range.durationSeconds, aggregatedSegments, totalChunks, chunk.index + 1, true);
+
+      updateJob(jobId, {
+        progress: 20 + Math.round(((chunk.index + 1) / totalChunks) * 60),
+        message: chunk.index + 1 === totalChunks ? "Preparing transcript review" : `Processed chunk ${chunk.index + 1} of ${totalChunks}`,
+        result: partialResult
+      });
+    }
+
+    const result = buildResult(request, range.durationSeconds, aggregatedSegments, totalChunks, totalChunks, false);
 
     updateJob(jobId, {
       status: "completed",
@@ -125,6 +150,29 @@ function requiredEnv(name: string): string {
     throw new Error(`${name} is required for local transcription mode.`);
   }
   return value;
+}
+
+function buildResult(
+  request: TranscriptionRequest,
+  durationSeconds: number,
+  segments: WhisperSegment[],
+  totalChunks: number,
+  completedChunks: number,
+  partial: boolean
+): TranscriptionResult {
+  const diarizedSentences = applyHeuristicSpeakerDiarization(segmentsToSentences(segments, request.languageHint));
+  const sentences = applyQualityHighlights(diarizedSentences, segments);
+
+  return {
+    sourceUsed: "audio-transcription",
+    provider: request.provider,
+    model: request.provider === "openai" ? "gpt-4o-transcribe" : request.localModel,
+    durationSeconds,
+    sentences,
+    partial,
+    completedChunks,
+    totalChunks
+  };
 }
 
 function offsetSegmentsToVideoTime(

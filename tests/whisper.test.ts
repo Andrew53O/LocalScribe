@@ -19,6 +19,24 @@ describe("whisper.cpp integration helpers", () => {
     expect(args).toContain("segment.wav");
     expect(args).toContain("zh");
     expect(args).toContain("--prompt");
+    expect(args).toContain("以下是繁體中文逐字稿，包含術語：OpenAI, Kubernetes");
+  });
+
+  it("does not pass English instruction prompts for Chinese transcription", () => {
+    const args = buildWhisperArgs({
+      audioPath: "segment.wav",
+      workDir: "tmp",
+      languageHint: "zh-TW",
+      config: {
+        whisperBin: "whisper-cli",
+        modelPath: "model.bin",
+        modelName: "large-v3-turbo-q8_0"
+      }
+    });
+
+    expect(args).toContain("zh");
+    expect(args).not.toContain("--prompt");
+    expect(args.join(" ")).not.toContain("Do not translate");
   });
 
   it("uses whisper auto-detect for mixed language mode", () => {

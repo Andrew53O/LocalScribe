@@ -109,19 +109,25 @@ export function parseWhisperJson(raw: string): WhisperSegment[] {
 }
 
 function buildPrompt(languageHint: LanguageHint, glossary = ""): string {
-  const base =
-    "Transcribe exactly what is spoken. Preserve English, Traditional Chinese Taiwan, Indonesian, and natural English code-switching. Do not translate.";
-  const languageNote =
-    languageHint === "zh-TW"
-      ? "Prefer Traditional Chinese characters used in Taiwan."
-      : languageHint === "id"
-        ? "The main language is Indonesian, but English terms may appear."
-        : languageHint === "en"
-          ? "The main language is English."
-          : "The language may be English, Traditional Chinese Taiwan, Indonesian, or mixed.";
-  const glossaryNote = glossary.trim() ? `Important terms: ${glossary.trim()}` : "";
+  const terms = glossary.trim();
 
-  return [base, languageNote, glossaryNote].filter(Boolean).join(" ");
+  if (!terms) {
+    return "";
+  }
+
+  if (languageHint === "zh-TW") {
+    return `以下是繁體中文逐字稿，包含術語：${terms}`;
+  }
+
+  if (languageHint === "id") {
+    return `Transkrip bahasa Indonesia dengan istilah: ${terms}`;
+  }
+
+  if (languageHint === "en") {
+    return `English transcript terms: ${terms}`;
+  }
+
+  return terms;
 }
 
 function mapLanguage(languageHint: LanguageHint): string | undefined {

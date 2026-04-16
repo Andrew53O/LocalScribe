@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { FocusEvent, MouseEvent } from "react";
 import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalSpeedSettings, Provider, TranscriptionResult } from "../shared/types";
 import { TranscriptView } from "./components/TranscriptView";
 
@@ -67,6 +68,8 @@ interface HistoryItem {
   title: string;
   thumbnailUrl: string;
   durationSeconds?: number;
+  startTime?: string;
+  endTime?: string;
   savedAt: string;
 }
 
@@ -207,12 +210,19 @@ export function App() {
       return;
     }
 
-    const historyItem = createHistoryItem(form.youtubeUrl, videoMetadata);
+    const historyItem = createHistoryItem(form.youtubeUrl, videoMetadata, form.startTime, form.endTime);
 
     setHistoryItems((current) => {
       const next = [
         historyItem,
-        ...current.filter((item) => item.youtubeUrl !== historyItem.youtubeUrl)
+        ...current.filter(
+          (item) =>
+            !(
+              item.youtubeUrl === historyItem.youtubeUrl &&
+              item.startTime === historyItem.startTime &&
+              item.endTime === historyItem.endTime
+            )
+        )
       ];
 
       return next.slice(0, 30);
@@ -522,7 +532,9 @@ export function App() {
   function restoreHistoryItem(item: HistoryItem) {
     setForm((current) => ({
       ...current,
-      youtubeUrl: item.youtubeUrl
+      youtubeUrl: item.youtubeUrl,
+      startTime: item.startTime ?? current.startTime,
+      endTime: item.endTime ?? current.endTime
     }));
     setControlView("transcribe");
   }
@@ -681,6 +693,7 @@ export function App() {
                         <span>{item.youtubeUrl}</span>
                         <div className="history-item-meta">
                           <span>{item.durationSeconds ? formatDuration(item.durationSeconds) : "Unknown length"}</span>
+                          <span>{formatHistoryRange(item.startTime, item.endTime)}</span>
                           <span>{formatSavedAt(item.savedAt)}</span>
                         </div>
                       </div>
@@ -720,6 +733,8 @@ export function App() {
                 inputMode="numeric"
                 value={form.startTime}
                 onChange={(event) => setForm({ ...form, startTime: formatTimeInput(event.target.value) })}
+                onClick={handleTimeFieldClick}
+                onFocus={handleTimeFieldFocus}
               />
             </label>
             <label>
@@ -728,6 +743,8 @@ export function App() {
                 inputMode="numeric"
                 value={form.endTime}
                 onChange={(event) => setForm({ ...form, endTime: formatTimeInput(event.target.value) })}
+                onClick={handleTimeFieldClick}
+                onFocus={handleTimeFieldFocus}
               />
             </label>
           </div>
@@ -1000,17 +1017,18 @@ function downloadFile(filename: string, content: string, type: string) {
 }
 
 function formatTimeInput(value: string): string {
+  if (value.includes(":")) {
+    return formatClockSegments(value);
+  }
+
   const digits = value.replace(/\D/g, "").slice(0, 6);
 
-  if (digits.length <= 2) {
-    return digits;
+  if (!digits) {
+    return "00:00:00";
   }
 
-  if (digits.length <= 4) {
-    return `${digits.slice(0, -2)}:${digits.slice(-2)}`;
-  }
-
-  return `${digits.slice(0, -4)}:${digits.slice(-4, -2)}:${digits.slice(-2)}`;
+  const padded = digits.padStart(6, "0");
+  return formatClockSegments(`${padded.slice(0, 2)}:${padded.slice(2, 4)}:${padded.slice(4, 6)}`);
 }
 
 function parseClientTimestamp(value: string): number | null {
@@ -1147,7 +1165,7 @@ function loadHistoryItems(): HistoryItem[] {
   }
 }
 
-function createHistoryItem(youtubeUrl: string, metadata: VideoMetadata | null): HistoryItem {
+function createHistoryItem(youtubeUrl: string, metadata: VideoMetadata | null, startTime: string, endTime: string): HistoryItem {
   const videoId = metadata?.id ?? extractYoutubeVideoId(youtubeUrl) ?? "unknown";
 
   return {
@@ -1155,8 +1173,67 @@ function createHistoryItem(youtubeUrl: string, metadata: VideoMetadata | null): 
     title: metadata?.title?.trim() || youtubeUrl,
     thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
     durationSeconds: metadata?.durationSeconds,
+    startTime,
+    endTime,
     savedAt: new Date().toISOString()
   };
+}
+
+function formatClockSegments(value: string): string {
+  const parts = value
+    .split(":")
+    .slice(0, 3)
+    .map((part) => part.replace(/\D/g, "").slice(0, 2));
+
+  if (parts.length === 2) {
+    parts.unshift("00");
+  }
+
+  while (parts.length < 3) {
+    parts.push("00");
+  }
+
+  return parts
+    .map((part, index) => {
+      const max = index === 0 ? 99 : 59;
+      const parsed = Number.parseInt(part || "0", 10);
+      const safe = Number.isFinite(parsed) ? Math.min(max, Math.max(0, parsed)) : 0;
+      return String(safe).padStart(2, "0");
+    })
+    .join(":");
+}
+
+function getTimeSegmentRange(position: number): [number, number] {
+  if (position <= 2) {
+    return [0, 2];
+  }
+
+  if (position <= 5) {
+    return [3, 5];
+  }
+
+  return [6, 8];
+}
+
+function selectTimeSegment(input: HTMLInputElement, position: number | null | undefined) {
+  const [start, end] = getTimeSegmentRange(position ?? input.selectionStart ?? 0);
+  window.requestAnimationFrame(() => input.setSelectionRange(start, end));
+}
+
+function handleTimeFieldClick(event: MouseEvent<HTMLInputElement>) {
+  selectTimeSegment(event.currentTarget, event.currentTarget.selectionStart);
+}
+
+function handleTimeFieldFocus(event: FocusEvent<HTMLInputElement>) {
+  selectTimeSegment(event.currentTarget, event.currentTarget.selectionStart);
+}
+
+function formatHistoryRange(startTime?: string, endTime?: string): string {
+  if (!startTime || !endTime) {
+    return "Full range";
+  }
+
+  return `${startTime} to ${endTime}`;
 }
 
 function formatSavedAt(value: string): string {

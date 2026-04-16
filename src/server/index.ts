@@ -66,11 +66,17 @@ app.get("/api/transcriptions/:jobId/result", async (request, reply) => {
   }
 
   if (query.format === "txt") {
-    return reply.header("content-type", "text/plain; charset=utf-8").send(resultToText(job.result));
+    return reply
+      .header("content-type", "text/plain; charset=utf-8")
+      .header("content-disposition", 'attachment; filename="transcript.txt"')
+      .send(resultToText(job.result));
   }
 
   if (query.format === "srt") {
-    return reply.header("content-type", "application/x-subrip; charset=utf-8").send(resultToSrt(job.result));
+    return reply
+      .header("content-type", "application/x-subrip; charset=utf-8")
+      .header("content-disposition", 'attachment; filename="transcript.srt"')
+      .send(resultToSrt(job.result));
   }
 
   return job.result;

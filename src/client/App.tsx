@@ -153,7 +153,7 @@ export function App() {
     setJob(payload as JobRecord);
   }
 
-  function exportResult(format: "json" | "txt" | "srt") {
+  async function exportResult(format: "json" | "txt" | "srt") {
     if (!job || !result) {
       return;
     }
@@ -163,7 +163,16 @@ export function App() {
       return;
     }
 
-    window.open(`/api/transcriptions/${job.id}/result?format=${format}`, "_blank");
+    const response = await fetch(`/api/transcriptions/${job.id}/result?format=${format}`);
+    const content = await response.text();
+
+    if (!response.ok) {
+      setError("Unable to download transcript.");
+      return;
+    }
+
+    const contentType = response.headers.get("content-type") ?? "text/plain; charset=utf-8";
+    downloadFile(`transcript.${format}`, content, contentType);
   }
 
   function updateDefaultLanguage(defaultLanguage: LanguageHint) {

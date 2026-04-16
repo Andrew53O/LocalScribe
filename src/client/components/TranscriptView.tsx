@@ -2,19 +2,28 @@ import type { Highlight, TranscriptSentence } from "../../shared/types";
 
 interface Props {
   sentences: TranscriptSentence[];
+  activeSentenceIndex?: number;
+  onSeek?: (seconds: number, index: number) => void;
 }
 
-export function TranscriptView({ sentences }: Props) {
+export function TranscriptView({ sentences, activeSentenceIndex, onSeek }: Props) {
   return (
     <div className="sentence-list">
       {sentences.map((sentence, index) => (
-        <article className={`sentence-row ${sentence.qualityStatus}`} key={`${sentence.startSeconds}-${index}`}>
+        <article
+          className={`sentence-row ${sentence.qualityStatus} ${activeSentenceIndex === index ? "active" : ""}`}
+          key={`${sentence.startSeconds}-${index}`}
+        >
           <div className="sentence-meta">
-            <span>{formatTime(sentence.startSeconds)}</span>
+            <button className="timestamp-link" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
+              {formatTime(sentence.startSeconds)}
+            </button>
             <span>{sentence.detectedLanguage}</span>
             {sentence.qualityStatus === "review" ? <strong>Review</strong> : <span>OK</span>}
           </div>
-          <p>{renderHighlighted(sentence.text, sentence.highlights)}</p>
+          <button className="sentence-text" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
+            {renderHighlighted(sentence.text, sentence.highlights)}
+          </button>
         </article>
       ))}
     </div>

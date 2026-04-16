@@ -25,6 +25,11 @@ interface VideoMetadata {
   title?: string;
 }
 
+interface PlayerState {
+  embedUrl: string;
+  videoId: string;
+}
+
 interface LocalPrerequisite {
   key: "ytDlp" | "ffmpeg" | "whisperBin" | "whisperModel";
   label: string;
@@ -63,6 +68,7 @@ export function App() {
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
   const [metadataStatus, setMetadataStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [metadataError, setMetadataError] = useState("");
+  const [activeSentenceIndex, setActiveSentenceIndex] = useState<number | null>(null);
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
@@ -72,6 +78,7 @@ export function App() {
     () => result?.sentences.filter((sentence) => sentence.qualityStatus === "review").length ?? 0,
     [result]
   );
+  const playerState = useMemo(() => createPlayerState(form.youtubeUrl), [form.youtubeUrl]);
 
   useEffect(() => {
     fetch("/api/health")
@@ -87,10 +94,12 @@ export function App() {
   useEffect(() => {
     if (!result) {
       setPlainTranscript("");
+      setActiveSentenceIndex(null);
       return;
     }
 
     setPlainTranscript(result.sentences.map((sentence) => sentence.text).join("\n\n"));
+    setActiveSentenceIndex(0);
   }, [result]);
 
   useEffect(() => {
@@ -272,6 +281,37 @@ export function App() {
     window.setTimeout(() => setCopyStatus(""), 1500);
   }
 
+  function seekToSentence(seconds: number, index: number) {
+    setActiveSentenceIndex(index);
+
+    if (!playerState) {
+      return;
+    }
+
+    const iframe = document.getElementById("youtube-player-frame") as HTMLIFrameElement | null;
+    if (!iframe?.contentWindow) {
+      return;
+    }
+
+    iframe.contentWindow.postMessage(
+      JSON.stringify({
+        event: "command",
+        func: "seekTo",
+        args: [Math.max(0, Math.floor(seconds)), true]
+      }),
+      "*"
+    );
+
+    iframe.contentWindow.postMessage(
+      JSON.stringify({
+        event: "command",
+        func: "playVideo",
+        args: []
+      }),
+      "*"
+    );
+  }
+
   return (
     <main className="app-shell">
       <section className="workspace">
@@ -445,6 +485,28 @@ export function App() {
 
           {result ? (
             <>
+              {playerState ? (
+                <section className="player-panel" aria-label="YouTube playback">
+                  <div className="player-header">
+                    <div>
+                      <p className="eyebrow">Playback</p>
+                      <h3>Synced YouTube player</h3>
+                    </div>
+                    <button type="button" onClick={() => activeSentenceIndex !== null && seekToSentence(result.sentences[activeSentenceIndex].startSeconds, activeSentenceIndex)}>
+                      Jump to active line
+                    </button>
+                  </div>
+                  <div className="player-frame-wrap">
+                    <iframe
+                      id="youtube-player-frame"
+                      title="YouTube player"
+                      src={playerState.embedUrl}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
+                </section>
+              ) : null}
               <div className="result-header">
                 <div>
                   <p className="eyebrow">Transcript</p>
@@ -476,7 +538,11 @@ export function App() {
                 </button>
               </div>
               {resultView === "transcript" ? (
-                <TranscriptView sentences={result.sentences} />
+                <TranscriptView
+                  sentences={result.sentences}
+                  activeSentenceIndex={activeSentenceIndex ?? undefined}
+                  onSeek={seekToSentence}
+                />
               ) : (
                 <section className="plain-transcript" aria-label="Editable plain transcript">
                   <div className="plain-transcript-header">
@@ -619,4 +685,43 @@ function formatDuration(totalSeconds: number): string {
   return [hours, minutes, seconds]
     .map((part) => String(part).padStart(2, "0"))
     .join(":");
+}
+
+function createPlayerState(youtubeUrl: string): PlayerState | null {
+  const videoId = extractYoutubeVideoId(youtubeUrl);
+
+  if (!videoId) {
+    return null;
+  }
+
+  return {
+    videoId,
+    embedUrl: `https://www.youtube.com/embed/${videoId}?enablejsapi=1&playsinline=1&rel=0`
+  };
+}
+
+function extractYoutubeVideoId(value: string): string | null {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.replace(/^www\./, "").toLowerCase();
+
+    if (host === "youtu.be") {
+      return url.pathname.split("/").filter(Boolean)[0] ?? null;
+    }
+
+    if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
+      if (url.searchParams.has("v")) {
+        return url.searchParams.get("v");
+      }
+
+      const segments = url.pathname.split("/").filter(Boolean);
+      if ((segments[0] === "shorts" || segments[0] === "live") && segments[1]) {
+        return segments[1];
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }

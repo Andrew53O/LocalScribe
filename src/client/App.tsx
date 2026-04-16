@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FocusEvent, MouseEvent } from "react";
+import type { ClipboardEvent, FocusEvent, KeyboardEvent, MouseEvent } from "react";
 import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalSpeedSettings, Provider, TranscriptionResult } from "../shared/types";
 import { TranscriptView } from "./components/TranscriptView";
 
@@ -74,6 +74,7 @@ interface HistoryItem {
 }
 
 type ControlView = "transcribe" | "history";
+type TimeFieldName = "startTime" | "endTime";
 
 const defaultLocalSettings: LocalSettings = {
   defaultLanguage: "auto",
@@ -539,6 +540,80 @@ export function App() {
     setControlView("transcribe");
   }
 
+  function updateTimeField(field: TimeFieldName, value: string) {
+    setForm((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
+
+  function handleTimeFieldKeyDown(field: TimeFieldName, event: KeyboardEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const currentValue = formatTimeInput(input.value);
+    const selectionStart = input.selectionStart ?? 0;
+    const selectionEnd = input.selectionEnd ?? selectionStart;
+    const segmentIndex = getTimeSegmentIndex(selectionStart);
+    const [segmentStart, segmentEnd] = getTimeSegmentRangeByIndex(segmentIndex);
+
+    if (/^\d$/.test(event.key)) {
+      event.preventDefault();
+
+      const segmentValue = currentValue.slice(segmentStart, segmentEnd);
+      const isWholeSegmentSelected = selectionStart === segmentStart && selectionEnd === segmentEnd;
+      const isFirstDigitTarget =
+        isWholeSegmentSelected ||
+        selectionStart <= segmentStart ||
+        (selectionStart === segmentStart && selectionEnd <= segmentStart + 1);
+      const nextSegmentValue = clampTimeSegment(
+        isFirstDigitTarget ? `0${event.key}` : `${segmentValue[0]}${event.key}`,
+        segmentIndex
+      );
+      const nextValue = replaceTimeSegment(currentValue, segmentIndex, nextSegmentValue);
+      const nextSelection = isFirstDigitTarget
+        ? [segmentStart + 1, segmentEnd] as const
+        : segmentIndex < 2
+          ? getTimeSegmentRangeByIndex(segmentIndex + 1)
+          : [segmentEnd, segmentEnd] as const;
+
+      updateTimeField(field, nextValue);
+      window.requestAnimationFrame(() => input.setSelectionRange(nextSelection[0], nextSelection[1]));
+      return;
+    }
+
+    if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault();
+      const nextValue = replaceTimeSegment(currentValue, segmentIndex, "00");
+      updateTimeField(field, nextValue);
+      window.requestAnimationFrame(() => input.setSelectionRange(segmentStart, segmentEnd));
+      return;
+    }
+
+    if (event.key === ":") {
+      event.preventDefault();
+      const nextRange = segmentIndex < 2 ? getTimeSegmentRangeByIndex(segmentIndex + 1) : getTimeSegmentRangeByIndex(2);
+      window.requestAnimationFrame(() => input.setSelectionRange(nextRange[0], nextRange[1]));
+      return;
+    }
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      const nextRange = getTimeSegmentRangeByIndex(Math.max(0, segmentIndex - 1));
+      window.requestAnimationFrame(() => input.setSelectionRange(nextRange[0], nextRange[1]));
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      const nextRange = getTimeSegmentRangeByIndex(Math.min(2, segmentIndex + 1));
+      window.requestAnimationFrame(() => input.setSelectionRange(nextRange[0], nextRange[1]));
+    }
+  }
+
+  function handleTimeFieldPaste(field: TimeFieldName, event: ClipboardEvent<HTMLInputElement>) {
+    event.preventDefault();
+    updateTimeField(field, formatTimeInput(event.clipboardData.getData("text")));
+  }
+
   return (
     <main className="app-shell">
       <section className="workspace">
@@ -735,6 +810,8 @@ export function App() {
                 onChange={(event) => setForm({ ...form, startTime: formatTimeInput(event.target.value) })}
                 onClick={handleTimeFieldClick}
                 onFocus={handleTimeFieldFocus}
+                onKeyDown={(event) => handleTimeFieldKeyDown("startTime", event)}
+                onPaste={(event) => handleTimeFieldPaste("startTime", event)}
               />
             </label>
             <label>
@@ -745,6 +822,8 @@ export function App() {
                 onChange={(event) => setForm({ ...form, endTime: formatTimeInput(event.target.value) })}
                 onClick={handleTimeFieldClick}
                 onFocus={handleTimeFieldFocus}
+                onKeyDown={(event) => handleTimeFieldKeyDown("endTime", event)}
+                onPaste={(event) => handleTimeFieldPaste("endTime", event)}
               />
             </label>
           </div>
@@ -1203,20 +1282,44 @@ function formatClockSegments(value: string): string {
     .join(":");
 }
 
-function getTimeSegmentRange(position: number): [number, number] {
+function getTimeSegmentIndex(position: number): number {
   if (position <= 2) {
-    return [0, 2];
+    return 0;
   }
 
   if (position <= 5) {
+    return 1;
+  }
+
+  return 2;
+}
+
+function getTimeSegmentRangeByIndex(segmentIndex: number): [number, number] {
+  if (segmentIndex <= 0) {
+    return [0, 2];
+  }
+
+  if (segmentIndex === 1) {
     return [3, 5];
   }
 
   return [6, 8];
 }
 
+function clampTimeSegment(value: string, segmentIndex: number): string {
+  const max = segmentIndex === 0 ? 99 : 59;
+  const parsed = Number.parseInt(value.replace(/\D/g, "") || "0", 10);
+  return String(Math.min(max, Math.max(0, parsed))).padStart(2, "0");
+}
+
+function replaceTimeSegment(value: string, segmentIndex: number, nextSegmentValue: string): string {
+  const normalized = formatTimeInput(value);
+  const [start, end] = getTimeSegmentRangeByIndex(segmentIndex);
+  return `${normalized.slice(0, start)}${nextSegmentValue}${normalized.slice(end)}`;
+}
+
 function selectTimeSegment(input: HTMLInputElement, position: number | null | undefined) {
-  const [start, end] = getTimeSegmentRange(position ?? input.selectionStart ?? 0);
+  const [start, end] = getTimeSegmentRangeByIndex(getTimeSegmentIndex(position ?? input.selectionStart ?? 0));
   window.requestAnimationFrame(() => input.setSelectionRange(start, end));
 }
 

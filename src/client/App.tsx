@@ -122,8 +122,11 @@ export function App() {
   const [historyQuery, setHistoryQuery] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [playerFocusMode, setPlayerFocusMode] = useState(false);
+  const [isControlPanelCollapsed, setIsControlPanelCollapsed] = useState(false);
 
   const isWorking = job?.status === "queued" || job?.status === "running";
+  const isInteractiveMode = playerFocusMode && Boolean(playerState);
+  const showCollapsedControlPanel = isInteractiveMode && isControlPanelCollapsed;
   const progressLabel = displayedProgress.toFixed(1);
   const elapsedLabel = job ? formatElapsedTime(job.createdAt, job.status === "completed" || job.status === "failed" ? job.updatedAt : elapsedNow) : "";
   const timeRangeError = getTimeRangeError(form.startTime, form.endTime, videoMetadata?.durationSeconds);
@@ -356,6 +359,7 @@ export function App() {
     setElapsedNow(Date.now());
     setEditingSentenceIndex(null);
     setPlayerFocusMode(false);
+    setIsControlPanelCollapsed(false);
 
     if (timeRangeError) {
       setError(timeRangeError);
@@ -530,8 +534,14 @@ export function App() {
     }
 
     setPlayerFocusMode(true);
+    setIsControlPanelCollapsed(true);
     seekToSentence(result.sentences[activeSentenceIndex].startSeconds, activeSentenceIndex);
     window.setTimeout(() => scrollSentenceIntoView(activeSentenceIndex), 120);
+  }
+
+  function exitInteractiveMode() {
+    setPlayerFocusMode(false);
+    setIsControlPanelCollapsed(false);
   }
 
   function restoreHistoryItem(item: HistoryItem) {
@@ -542,6 +552,17 @@ export function App() {
       endTime: item.endTime ?? current.endTime
     }));
     setControlView("transcribe");
+  }
+
+  function openControlView(view: ControlView) {
+    setControlView(view);
+    setShowSettings(false);
+    setIsControlPanelCollapsed(false);
+  }
+
+  function openSettingsPanel() {
+    setShowSettings(true);
+    setIsControlPanelCollapsed(false);
   }
 
   function updateTimeField(field: TimeFieldName, value: string) {
@@ -634,14 +655,55 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <section className="workspace">
-        <aside className="control-panel" aria-label="Transcription controls">
+      <section className={`workspace ${showCollapsedControlPanel ? "interactive-sidebar-collapsed" : ""}`}>
+        <aside className={`control-panel ${showCollapsedControlPanel ? "collapsed" : ""}`} aria-label="Transcription controls">
+          {showCollapsedControlPanel ? (
+            <div className="control-rail" aria-label="Collapsed controls">
+              <button
+                className="icon-button rail-button"
+                type="button"
+                aria-label="Expand control panel"
+                title="Expand control panel"
+                onClick={() => setIsControlPanelCollapsed(false)}
+              >
+                <PanelExpandIcon />
+              </button>
+              <button
+                className={`icon-button rail-button ${controlView === "transcribe" && !showSettings ? "active" : ""}`}
+                type="button"
+                aria-label="Open transcribe panel"
+                title="Transcribe"
+                onClick={() => openControlView("transcribe")}
+              >
+                <TranscribeIcon />
+              </button>
+              <button
+                className={`icon-button rail-button ${controlView === "history" && !showSettings ? "active" : ""}`}
+                type="button"
+                aria-label="Open history panel"
+                title="History"
+                onClick={() => openControlView("history")}
+              >
+                <HistoryIcon />
+              </button>
+              <button
+                className={`icon-button rail-button ${showSettings ? "active" : ""}`}
+                type="button"
+                aria-label="Open local settings"
+                title="Local settings"
+                onClick={openSettingsPanel}
+              >
+                <SettingsIcon />
+              </button>
+            </div>
+          ) : (
+            <>
           <div className="control-header">
             <div className="segmented control-tabs" role="tablist" aria-label="Control views">
-              <button className={controlView === "transcribe" ? "active" : ""} type="button" onClick={() => setControlView("transcribe")}>
+              <button className={controlView === "transcribe" ? "active" : ""} type="button" onClick={() => openControlView("transcribe")}>
                 Transcribe
               </button>
-              <button className={controlView === "history" ? "active" : ""} type="button" onClick={() => setControlView("history")}>
+              <button className={controlView === "history" ? "active" : ""} type="button" onClick={() => openControlView("history")}>
                 History
               </button>
             </div>
@@ -936,9 +998,11 @@ export function App() {
 
             </>
           )}
+            </>
+          )}
         </aside>
 
-        <section className={`result-panel ${playerFocusMode && playerState ? "focus-layout" : ""}`} aria-label="Transcript result" ref={resultPanelRef}>
+        <section className={`result-panel ${isInteractiveMode ? "focus-layout" : ""}`} aria-label="Transcript result" ref={resultPanelRef}>
           {job ? (
             <div className="status-bar">
               <span>{job.message}</span>
@@ -954,17 +1018,17 @@ export function App() {
                 <section className="player-panel" aria-label="YouTube playback">
                   <div className="player-header">
                     <div>
-                      <p className="eyebrow">Playback</p>
-                      <h3>Synced YouTube player</h3>
+                      <p className="eyebrow">{isInteractiveMode ? "Interactive Mode" : "Playback"}</p>
+                      <h3>{isInteractiveMode ? "Interactive transcript sync" : "Synced YouTube player"}</h3>
                     </div>
                     <div className="player-actions">
                       {playerFocusMode ? (
-                        <button type="button" onClick={() => setPlayerFocusMode(false)}>
-                          Full transcript view
+                        <button type="button" onClick={exitInteractiveMode}>
+                          Exit Interactive Mode
                         </button>
                       ) : null}
                       <button type="button" onClick={jumpToActiveSentence}>
-                        Jump to active line
+                        {isInteractiveMode ? "Sync Active Line" : "Enter Interactive Mode"}
                       </button>
                     </div>
                   </div>
@@ -1404,4 +1468,53 @@ function extractYoutubeVideoId(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+function SettingsIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3.25" />
+      <path d="M12 2.75v2.1" />
+      <path d="M12 19.15v2.1" />
+      <path d="m4.93 4.93 1.49 1.49" />
+      <path d="m17.58 17.58 1.49 1.49" />
+      <path d="M2.75 12h2.1" />
+      <path d="M19.15 12h2.1" />
+      <path d="m4.93 19.07 1.49-1.49" />
+      <path d="m17.58 6.42 1.49-1.49" />
+    </svg>
+  );
+}
+
+function PanelExpandIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <path d="M8.5 7.5v9" />
+      <path d="m12.5 12 3-3" />
+      <path d="m12.5 12 3 3" />
+    </svg>
+  );
+}
+
+function TranscribeIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 10.5h2.5" />
+      <path d="M9 7.5v9" />
+      <path d="M12 5.5v13" />
+      <path d="M15 8.5v7" />
+      <path d="M18 10.5h2" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 12a8.5 8.5 0 1 0 2.49-6.01" />
+      <path d="M3.5 4.5v4h4" />
+      <path d="M12 7.5v5l3 2" />
+    </svg>
+  );
 }

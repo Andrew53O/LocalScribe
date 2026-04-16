@@ -175,11 +175,19 @@ export function App() {
           <div className="time-grid">
             <label>
               Start
-              <input value={form.startTime} onChange={(event) => setForm({ ...form, startTime: event.target.value })} />
+              <input
+                inputMode="numeric"
+                value={form.startTime}
+                onChange={(event) => setForm({ ...form, startTime: formatTimeInput(event.target.value) })}
+              />
             </label>
             <label>
               End
-              <input value={form.endTime} onChange={(event) => setForm({ ...form, endTime: event.target.value })} />
+              <input
+                inputMode="numeric"
+                value={form.endTime}
+                onChange={(event) => setForm({ ...form, endTime: formatTimeInput(event.target.value) })}
+              />
             </label>
           </div>
 
@@ -329,6 +337,20 @@ function downloadFile(filename: string, content: string, type: string) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function formatTimeInput(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 6);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  if (digits.length <= 4) {
+    return `${digits.slice(0, -2)}:${digits.slice(-2)}`;
+  }
+
+  return `${digits.slice(0, -4)}:${digits.slice(-4, -2)}:${digits.slice(-2)}`;
 }
 
 function formatElapsedTime(startValue: string, endValue: string | number): string {

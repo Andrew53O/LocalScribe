@@ -496,12 +496,23 @@ export function App() {
     <main className="app-shell">
       <section className="workspace">
         <aside className="control-panel" aria-label="Transcription controls">
-          <div className="segmented control-tabs" role="tablist" aria-label="Control views">
-            <button className={controlView === "transcribe" ? "active" : ""} type="button" onClick={() => setControlView("transcribe")}>
-              Transcribe
-            </button>
-            <button className={controlView === "history" ? "active" : ""} type="button" onClick={() => setControlView("history")}>
-              History
+          <div className="control-header">
+            <div className="segmented control-tabs" role="tablist" aria-label="Control views">
+              <button className={controlView === "transcribe" ? "active" : ""} type="button" onClick={() => setControlView("transcribe")}>
+                Transcribe
+              </button>
+              <button className={controlView === "history" ? "active" : ""} type="button" onClick={() => setControlView("history")}>
+                History
+              </button>
+            </div>
+            <button
+              className={`icon-button settings-toggle ${showSettings ? "active" : ""}`}
+              type="button"
+              aria-label="Open local settings"
+              title="Local settings"
+              onClick={() => setShowSettings((current) => !current)}
+            >
+              ≡
             </button>
           </div>
           <div className="brand-block">
@@ -720,7 +731,7 @@ export function App() {
           )}
         </aside>
 
-        <section className="result-panel" aria-label="Transcript result">
+        <section className="result-panel" aria-label="Transcript result" ref={resultPanelRef}>
           {job ? (
             <div className="status-bar">
               <span>{job.message}</span>
@@ -739,7 +750,7 @@ export function App() {
                       <p className="eyebrow">Playback</p>
                       <h3>Synced YouTube player</h3>
                     </div>
-                    <button type="button" onClick={() => activeSentenceIndex !== null && seekToSentence(result.sentences[activeSentenceIndex].startSeconds, activeSentenceIndex)}>
+                    <button type="button" onClick={jumpToActiveSentence}>
                       Jump to active line
                     </button>
                   </div>
@@ -837,10 +848,17 @@ export function App() {
                       <p className="eyebrow">Plain Text</p>
                       <h3>Editable paragraph transcript</h3>
                     </div>
-                    <button type="button" onClick={copyPlainTranscript}>
-                      {copyStatus || "Copy"}
+                    <button
+                      className="icon-button copy-button"
+                      type="button"
+                      onClick={copyPlainTranscript}
+                      aria-label={copyStatus || "Copy paragraph transcript"}
+                      title={copyStatus || "Copy paragraph transcript"}
+                    >
+                      <span aria-hidden="true">⧉</span>
                     </button>
                   </div>
+                  {copyStatus ? <p className="subtle copy-status">{copyStatus}</p> : null}
                   <textarea
                     value={plainTranscript}
                     onChange={(event) => setPlainTranscript(event.target.value)}

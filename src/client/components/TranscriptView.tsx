@@ -48,40 +48,41 @@ export function TranscriptView({
           <article
             className={`sentence-row ${sentence.qualityStatus} ${activeSentenceIndex === index ? "active" : ""}`}
             key={`${sentence.startSeconds}-${index}`}
+            data-sentence-index={index}
           >
-          <div className="sentence-meta">
-            <button className="timestamp-link" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
-              {formatTime(sentence.startSeconds)}
-            </button>
-            <span>{sentence.speakerLabel}</span>
-            <span>{sentence.detectedLanguage}</span>
-            {reviewState === "needs-review" ? <strong>Review</strong> : <span>{labelReviewState(reviewState)}</span>}
-          </div>
-          <div className="sentence-content">
-            {editingSentenceIndex === index ? (
-              <textarea
-                className="sentence-editor"
-                value={draft?.text ?? sentence.text}
-                onChange={(event) => onDraftTextChange?.(index, event.target.value)}
-                spellCheck="false"
-              />
-            ) : (
-              <button className="sentence-text" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
-                {renderHighlighted(sentence.text, sentence.highlights)}
+            <div className="sentence-meta">
+              <button className="timestamp-link" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
+                {formatTime(sentence.startSeconds)}
               </button>
-            )}
-            <div className="sentence-actions">
-              <button type="button" onClick={() => onReviewStateChange?.(index, "approved")}>Approve</button>
-              <button type="button" onClick={() => onReviewStateChange?.(index, "needs-review")}>Needs review</button>
-              {editingSentenceIndex === index ? (
-                <button type="button" onClick={() => onStopEditing?.()}>Done</button>
-              ) : (
-                <button type="button" onClick={() => onStartEditing?.(index)}>Edit</button>
-              )}
-              <button type="button" onClick={() => onResetSentence?.(index)}>Reset</button>
+              <span>{sentence.speakerLabel}</span>
+              <span>{sentence.detectedLanguage}</span>
+              {reviewState === "needs-review" ? <strong>Review</strong> : <span>{labelReviewState(reviewState)}</span>}
             </div>
-          </div>
-        </article>
+            <div className="sentence-content">
+              {editingSentenceIndex === index ? (
+                <textarea
+                  className="sentence-editor"
+                  value={draft?.text ?? sentence.text}
+                  onChange={(event) => onDraftTextChange?.(index, event.target.value)}
+                  spellCheck="false"
+                />
+              ) : (
+                <button className="sentence-text" type="button" onClick={() => onSeek?.(sentence.startSeconds, index)}>
+                  {renderHighlighted(sentence.text, sentence.highlights)}
+                </button>
+              )}
+            </div>
+            <div className="sentence-actions" aria-label="Sentence actions">
+              <button type="button" title="Approve" aria-label="Approve" onClick={() => onReviewStateChange?.(index, "approved")}>✓</button>
+              <button type="button" title="Mark as needs review" aria-label="Mark as needs review" onClick={() => onReviewStateChange?.(index, "needs-review")}>!</button>
+              {editingSentenceIndex === index ? (
+                <button type="button" title="Done editing" aria-label="Done editing" onClick={() => onStopEditing?.()}>✓</button>
+              ) : (
+                <button type="button" title="Edit sentence" aria-label="Edit sentence" onClick={() => onStartEditing?.(index)}>✎</button>
+              )}
+              <button type="button" title="Reset sentence" aria-label="Reset sentence" onClick={() => onResetSentence?.(index)}>↺</button>
+            </div>
+          </article>
         );
       })}
     </div>

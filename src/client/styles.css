@@ -68,7 +68,7 @@ button:disabled {
 
 .control-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
   gap: 12px;
   align-items: center;
 }
@@ -223,13 +223,33 @@ textarea {
 }
 
 .settings-toggle {
+  width: 100%;
+  justify-self: stretch;
+  padding: 0 14px;
+  font-size: 0;
   font-weight: 700;
+  position: relative;
+}
+
+.settings-toggle::after {
+  content: "Local Settings";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #213026;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .settings-toggle.active {
   background: #1f6f54;
   color: #ffffff;
   border-color: #1f6f54;
+}
+
+.settings-toggle.active::after {
+  color: #ffffff;
 }
 
 .settings-drawer {

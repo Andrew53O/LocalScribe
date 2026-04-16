@@ -20,6 +20,11 @@ interface LocalSettings {
 
 type ResultView = "transcript" | "plain";
 
+interface VideoMetadata {
+  durationSeconds: number;
+  title?: string;
+}
+
 const defaultLocalSettings: LocalSettings = {
   defaultLanguage: "auto",
   defaultModel: "large-v3-turbo-q8_0"
@@ -41,10 +46,14 @@ export function App() {
   const [plainTranscript, setPlainTranscript] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
   const [resultView, setResultView] = useState<ResultView>("transcript");
+  const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
+  const [metadataStatus, setMetadataStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [metadataError, setMetadataError] = useState("");
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
   const elapsedLabel = job ? formatElapsedTime(job.createdAt, job.status === "completed" || job.status === "failed" ? job.updatedAt : elapsedNow) : "";
+  const timeRangeError = getTimeRangeError(form.startTime, form.endTime, videoMetadata?.durationSeconds);
   const reviewCount = useMemo(
     () => result?.sentences.filter((sentence) => sentence.qualityStatus === "review").length ?? 0,
     [result]
@@ -69,6 +78,55 @@ export function App() {
 
     setPlainTranscript(result.sentences.map((sentence) => sentence.text).join("\n\n"));
   }, [result]);
+
+  useEffect(() => {
+    const youtubeUrl = form.youtubeUrl.trim();
+
+    if (!youtubeUrl) {
+      setVideoMetadata(null);
+      setMetadataStatus("idle");
+      setMetadataError("");
+      return;
+    }
+
+    let cancelled = false;
+    setMetadataStatus("loading");
+    setMetadataError("");
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/video-metadata?youtubeUrl=${encodeURIComponent(youtubeUrl)}`);
+        const payload = await response.json();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!response.ok) {
+          setVideoMetadata(null);
+          setMetadataStatus("error");
+          setMetadataError(payload.error ?? "Unable to fetch video duration.");
+          return;
+        }
+
+        setVideoMetadata(payload as VideoMetadata);
+        setMetadataStatus("ready");
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        setVideoMetadata(null);
+        setMetadataStatus("error");
+        setMetadataError("Unable to fetch video duration.");
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [form.youtubeUrl]);
 
   useEffect(() => {
     if (!job || job.status === "completed" || job.status === "failed") {
@@ -137,6 +195,11 @@ export function App() {
     setResultView("transcript");
     setDisplayedProgress(0);
     setElapsedNow(Date.now());
+
+    if (timeRangeError) {
+      setError(timeRangeError);
+      return;
+    }
 
     const response = await fetch("/api/transcriptions", {
       method: "POST",
@@ -213,6 +276,12 @@ export function App() {
               placeholder="https://www.youtube.com/watch?v=..."
             />
           </label>
+
+          {metadataStatus === "loading" ? <p className="subtle">Checking video duration...</p> : null}
+          {videoMetadata ? (
+            <p className="subtle">Video length: {formatDuration(videoMetadata.durationSeconds)}</p>
+          ) : null}
+          {metadataStatus === "error" ? <p className="warning">{metadataError}</p> : null}
 
           <div className="time-grid">
             <label>
@@ -331,9 +400,10 @@ export function App() {
           ) : null}
 
           {error ? <p className="error">{error}</p> : null}
+          {timeRangeError ? <p className="error">{timeRangeError}</p> : null}
           {job?.status === "failed" ? <p className="error">{job.error}</p> : null}
 
-          <button className="primary" type="button" onClick={submit} disabled={isWorking}>
+          <button className="primary" type="button" onClick={submit} disabled={isWorking || Boolean(timeRangeError)}>
             {isWorking ? "Transcribing..." : "Transcribe Segment"}
           </button>
         </aside>
@@ -444,6 +514,36 @@ function formatTimeInput(value: string): string {
   return `${digits.slice(0, -4)}:${digits.slice(-4, -2)}:${digits.slice(-2)}`;
 }
 
+function parseClientTimestamp(value: string): number | null {
+  const trimmed = value.trim();
+  const match = /^(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d)$/.exec(trimmed);
+
+  if (!match) {
+    return null;
+  }
+
+  return (match[1] ? Number(match[1]) : 0) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
+
+function getTimeRangeError(startTime: string, endTime: string, durationSeconds?: number): string {
+  const startSeconds = parseClientTimestamp(startTime);
+  const endSeconds = parseClientTimestamp(endTime);
+
+  if (startSeconds === null || endSeconds === null) {
+    return "";
+  }
+
+  if (endSeconds <= startSeconds) {
+    return "End time must be after start time.";
+  }
+
+  if (durationSeconds !== undefined && (startSeconds > durationSeconds || endSeconds > durationSeconds)) {
+    return `Selected range exceeds the video length (${formatDuration(durationSeconds)}).`;
+  }
+
+  return "";
+}
+
 function loadLocalSettings(): LocalSettings {
   try {
     const raw = localStorage.getItem("yt-transcriber-settings");
@@ -483,4 +583,15 @@ function formatElapsedTime(startValue: string, endValue: string | number): strin
   const seconds = totalSeconds % 60;
 
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatDuration(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = safe % 60;
+
+  return [hours, minutes, seconds]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
 }

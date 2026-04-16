@@ -16,6 +16,12 @@ export interface ExtractAudioInput {
   tools: AudioTools;
 }
 
+export interface VideoMetadata {
+  id?: string;
+  title?: string;
+  durationSeconds: number;
+}
+
 export async function extractSegmentAudio(input: ExtractAudioInput): Promise<string> {
   await mkdir(input.workDir, { recursive: true });
   const rawTemplate = path.join(input.workDir, "source.%(ext)s");
@@ -65,4 +71,24 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
   );
 
   return normalizedPath;
+}
+
+export async function getYoutubeVideoMetadata(youtubeUrl: string, ytDlpBin: string): Promise<VideoMetadata> {
+  const { stdout } = await runCommand(
+    ytDlpBin,
+    ["--no-playlist", "--dump-single-json", "--no-warnings", youtubeUrl],
+    { timeoutMs: 1000 * 60 * 2 }
+  );
+
+  const parsed = JSON.parse(stdout) as { duration?: number; title?: string; id?: string };
+
+  if (!parsed.duration || parsed.duration <= 0) {
+    throw new Error("Could not determine the video duration.");
+  }
+
+  return {
+    id: parsed.id,
+    title: parsed.title,
+    durationSeconds: parsed.duration
+  };
 }

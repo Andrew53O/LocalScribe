@@ -6,7 +6,9 @@ import staticPlugin from "@fastify/static";
 import Fastify from "fastify";
 import { loadLocalEnv } from "./lib/env.js";
 import { resultToSrt, resultToText } from "./lib/export.js";
+import { parseTimestamp } from "./lib/time.js";
 import { transcriptionRequestSchema } from "./lib/validation.js";
+import { getYoutubeVideoMetadata } from "./services/audio.js";
 import { createJob, getJob } from "./services/jobs.js";
 
 await loadLocalEnv();
@@ -28,12 +30,45 @@ app.get("/api/health", async () => ({
   openaiConfigured: Boolean(process.env.OPENAI_API_KEY)
 }));
 
+app.get("/api/video-metadata", async (request, reply) => {
+  const query = request.query as { youtubeUrl?: string };
+
+  if (!query.youtubeUrl) {
+    return reply.code(400).send({ error: "youtubeUrl is required." });
+  }
+
+  try {
+    const metadata = await getYoutubeVideoMetadata(query.youtubeUrl, process.env.YTDLP_BIN || "yt-dlp");
+    return metadata;
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "Unable to fetch video metadata."
+    });
+  }
+});
+
 app.post("/api/transcriptions", async (request, reply) => {
   const parsed = transcriptionRequestSchema.safeParse(request.body);
 
   if (!parsed.success) {
     return reply.code(400).send({
       error: parsed.error.issues.map((issue) => issue.message).join(" ")
+    });
+  }
+
+  try {
+    const metadata = await getYoutubeVideoMetadata(parsed.data.youtubeUrl, process.env.YTDLP_BIN || "yt-dlp");
+    const startSeconds = parseTimestamp(parsed.data.startTime);
+    const endSeconds = parseTimestamp(parsed.data.endTime);
+
+    if (startSeconds > metadata.durationSeconds || endSeconds > metadata.durationSeconds) {
+      return reply.code(400).send({
+        error: `Selected time range exceeds the video duration (${Math.floor(metadata.durationSeconds)} seconds).`
+      });
+    }
+  } catch (error) {
+    return reply.code(400).send({
+      error: error instanceof Error ? error.message : "Unable to validate the video duration."
     });
   }
 

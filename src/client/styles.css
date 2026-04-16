@@ -52,6 +52,7 @@ button:disabled {
 }
 
 .control-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -62,7 +63,14 @@ button:disabled {
 }
 
 .control-tabs {
-  margin-bottom: 4px;
+  margin-bottom: 0;
+}
+
+.control-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
 }
 
 .result-panel {
@@ -158,27 +166,77 @@ textarea {
   height: 18px;
 }
 
-.local-settings {
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 42px;
+  min-height: 42px;
+  border: 1px solid #bcc8b6;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #213026;
+  padding: 0 10px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.settings-toggle {
+  font-weight: 700;
+}
+
+.settings-toggle.active {
+  background: #1f6f54;
+  color: #ffffff;
+  border-color: #1f6f54;
+}
+
+.settings-drawer {
   display: grid;
   gap: 12px;
-  padding: 14px;
+  margin-top: -4px;
+  padding: 16px;
   border: 1px solid #d8ded3;
   border-radius: 8px;
   background: #f8faf6;
+  animation: slideDown 180ms ease-out;
 }
 
-.local-settings h2 {
+.settings-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.settings-drawer h2 {
   margin: 0;
   font-size: 18px;
 }
 
 .primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   min-height: 46px;
   border: 0;
   border-radius: 6px;
   background: #1f6f54;
   color: #ffffff;
   font-weight: 750;
+}
+
+.primary.busy {
+  background: #185841;
+}
+
+.button-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #ffffff;
+  border-radius: 999px;
+  animation: spin 700ms linear infinite;
 }
 
 .warning,
@@ -322,18 +380,17 @@ progress {
   font-size: 20px;
 }
 
-.plain-transcript button {
-  border: 1px solid #bcc8b6;
-  border-radius: 6px;
-  background: #f8faf6;
-  color: #213026;
-  padding: 9px 14px;
-  font-weight: 750;
-}
-
 .plain-transcript textarea {
   min-height: 180px;
   line-height: 1.6;
+}
+
+.copy-button {
+  font-size: 18px;
+}
+
+.copy-status {
+  margin: -4px 0 0;
 }
 
 .history-panel {
@@ -441,7 +498,7 @@ progress {
 
 .sentence-row {
   display: grid;
-  grid-template-columns: 150px 1fr;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
   gap: 16px;
   padding: 14px;
   border: 1px solid #d8ded3;
@@ -498,22 +555,27 @@ progress {
 
 .sentence-content {
   display: grid;
-  gap: 12px;
+  align-content: start;
+  min-width: 0;
 }
 
 .sentence-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-auto-rows: min-content;
   gap: 8px;
+  align-content: start;
 }
 
 .sentence-actions button {
+  min-width: 38px;
+  min-height: 38px;
   border: 1px solid #bcc8b6;
   border-radius: 6px;
   background: #f8faf6;
   color: #213026;
-  padding: 7px 11px;
+  padding: 0;
   font-weight: 700;
+  font-size: 18px;
 }
 
 .sentence-editor {
@@ -567,5 +629,28 @@ mark.danger {
 
   .status-bar {
     grid-template-columns: 1fr;
+  }
+
+  .sentence-actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

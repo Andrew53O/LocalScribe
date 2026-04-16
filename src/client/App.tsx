@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { JobRecord, LanguageHint, LocalModel, Provider, TranscriptionResult } from "../shared/types";
 import { TranscriptView } from "./components/TranscriptView";
 
@@ -70,6 +70,7 @@ const defaultLocalSettings: LocalSettings = {
 };
 
 export function App() {
+  const resultPanelRef = useRef<HTMLElement | null>(null);
   const [settings, setSettings] = useState<LocalSettings>(() => loadLocalSettings());
   const [form, setForm] = useState(() => ({
     ...initialForm,
@@ -93,8 +94,10 @@ export function App() {
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [editingSentenceIndex, setEditingSentenceIndex] = useState<number | null>(null);
   const [controlView, setControlView] = useState<ControlView>("transcribe");
+  const [showSettings, setShowSettings] = useState(false);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>(() => loadHistoryItems());
   const [historyQuery, setHistoryQuery] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
@@ -327,19 +330,25 @@ export function App() {
       return;
     }
 
-    const response = await fetch("/api/transcriptions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(form)
-    });
+    setIsSubmitting(true);
 
-    const payload = await response.json();
-    if (!response.ok) {
-      setError(payload.error ?? "Unable to start transcription.");
-      return;
+    try {
+      const response = await fetch("/api/transcriptions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(form)
+      });
+
+      const payload = await response.json();
+      if (!response.ok) {
+        setError(payload.error ?? "Unable to start transcription.");
+        return;
+      }
+
+      setJob(payload as JobRecord);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setJob(payload as JobRecord);
   }
 
   async function exportResult(format: "json" | "txt" | "srt") {
@@ -461,6 +470,20 @@ export function App() {
     );
   }
 
+  function scrollSentenceIntoView(index: number) {
+    const row = resultPanelRef.current?.querySelector<HTMLElement>(`[data-sentence-index="${index}"]`);
+    row?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function jumpToActiveSentence() {
+    if (!result || activeSentenceIndex === null) {
+      return;
+    }
+
+    seekToSentence(result.sentences[activeSentenceIndex].startSeconds, activeSentenceIndex);
+    window.setTimeout(() => scrollSentenceIntoView(activeSentenceIndex), 120);
+  }
+
   function restoreHistoryItem(item: HistoryItem) {
     setForm((current) => ({
       ...current,
@@ -486,6 +509,48 @@ export function App() {
             <h1>YouTube Segment Transcriber</h1>
             <p className="subtle">Audio-first, subtitle-free, multilingual transcript review.</p>
           </div>
+          {showSettings ? (
+            <section className="settings-drawer" aria-label="Local settings">
+              <div className="settings-drawer-header">
+                <div>
+                  <p className="eyebrow">Local Settings</p>
+                  <h2>Defaults</h2>
+                </div>
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label="Close local settings"
+                  title="Close settings"
+                  onClick={() => setShowSettings(false)}
+                >
+                  ×
+                </button>
+              </div>
+              <label>
+                Default language
+                <select
+                  value={settings.defaultLanguage}
+                  onChange={(event) => updateDefaultLanguage(event.target.value as LanguageHint)}
+                >
+                  <option value="auto">Auto / mixed</option>
+                  <option value="en">English</option>
+                  <option value="zh-TW">Chinese Taiwan</option>
+                  <option value="id">Indonesian</option>
+                </select>
+              </label>
+              <label>
+                Default model
+                <select
+                  value={settings.defaultModel}
+                  onChange={(event) => updateDefaultModel(event.target.value as LocalModel)}
+                >
+                  <option value="large-v3-turbo-q8_0">large-v3-turbo-q8_0 - 834 MiB</option>
+                  <option value="large-v3-turbo-q5_0">large-v3-turbo-q5_0 - 547 MiB</option>
+                  <option value="large-v3">large-v3 - 2.9 GiB</option>
+                </select>
+              </label>
+            </section>
+          ) : null}
 
           {controlView === "history" ? (
             <section className="history-panel" aria-label="History">
@@ -622,36 +687,6 @@ export function App() {
             Prefer Traditional Chinese cleanup
           </label>
 
-          <section className="local-settings" aria-label="Local settings">
-            <div>
-              <p className="eyebrow">Local Settings</p>
-              <h2>Defaults</h2>
-            </div>
-            <label>
-              Default language
-              <select
-                value={settings.defaultLanguage}
-                onChange={(event) => updateDefaultLanguage(event.target.value as LanguageHint)}
-              >
-                <option value="auto">Auto / mixed</option>
-                <option value="en">English</option>
-                <option value="zh-TW">Chinese Taiwan</option>
-                <option value="id">Indonesian</option>
-              </select>
-            </label>
-            <label>
-              Default model
-              <select
-                value={settings.defaultModel}
-                onChange={(event) => updateDefaultModel(event.target.value as LocalModel)}
-              >
-                <option value="large-v3-turbo-q8_0">large-v3-turbo-q8_0 - 834 MiB</option>
-                <option value="large-v3-turbo-q5_0">large-v3-turbo-q5_0 - 547 MiB</option>
-                <option value="large-v3">large-v3 - 2.9 GiB</option>
-              </select>
-            </label>
-          </section>
-
           {health && !health.localConfigured && form.provider === "local" ? (
             <div className="warning">
               <p className="warning-title">Local setup is incomplete.</p>
@@ -671,8 +706,15 @@ export function App() {
           {timeRangeError ? <p className="error">{timeRangeError}</p> : null}
           {job?.status === "failed" ? <p className="error">{job.error}</p> : null}
 
-          <button className="primary" type="button" onClick={submit} disabled={isWorking || Boolean(timeRangeError)}>
-            {isWorking ? "Transcribing..." : "Transcribe Segment"}
+          <button
+            className={`primary ${isSubmitting || isWorking ? "busy" : ""}`}
+            type="button"
+            onClick={submit}
+            disabled={isSubmitting || isWorking || Boolean(timeRangeError)}
+            aria-busy={isSubmitting || isWorking}
+          >
+            {isSubmitting || isWorking ? <span className="button-spinner" aria-hidden="true" /> : null}
+            <span>{isSubmitting ? "Starting..." : isWorking ? "Transcribing..." : "Transcribe Segment"}</span>
           </button>
             </>
           )}

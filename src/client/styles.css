@@ -700,6 +700,7 @@ mark.danger {
   .result-panel.focus-layout {
     display: grid;
     grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
     align-items: start;
     column-gap: 20px;
   }
@@ -722,6 +723,21 @@ mark.danger {
   .result-panel.focus-layout .sentence-list,
   .result-panel.focus-layout .plain-transcript {
     grid-column: 2;
+  }
+
+  .result-panel.focus-layout .review-toolbar {
+    position: sticky;
+    top: 24px;
+    z-index: 1;
+    background: #fcfdfb;
+    padding-bottom: 8px;
+  }
+
+  .result-panel.focus-layout .sentence-list,
+  .result-panel.focus-layout .plain-transcript {
+    max-height: calc(100vh - 220px);
+    overflow: auto;
+    padding-right: 6px;
   }
 }
 

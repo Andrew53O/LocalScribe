@@ -267,18 +267,14 @@ textarea {
   height: 18px;
   margin: auto;
   background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M10.58 2h2.84l.45 2.16c.64.16 1.25.41 1.81.75l1.9-1.12 2.01 2.01-1.12 1.9c.34.56.59 1.17.75 1.81L22 10.58v2.84l-2.16.45c-.16.64-.41 1.25-.75 1.81l1.12 1.9-2.01 2.01-1.9-1.12c-.56.34-1.17.59-1.81.75L13.42 22h-2.84l-.45-2.16a7.95 7.95 0 0 1-1.81-.75l-1.9 1.12-2.01-2.01 1.12-1.9a7.95 7.95 0 0 1-.75-1.81L2 13.42v-2.84l2.16-.45c.16-.64.41-1.25.75-1.81l-1.12-1.9 2.01-2.01 1.9 1.12c.56-.34 1.17-.59 1.81-.75L10.58 2Zm1.42 6.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M10.58 2h2.84l.45 2.16c.64.16 1.25.41 1.81.75l1.9-1.12 2.01 2.01-1.12 1.9c.34.56.59 1.17.75 1.81L22 10.58v2.84l-2.16.45c-.16.64-.41 1.25-.75 1.81l1.12 1.9-2.01 2.01-1.9-1.12c-.56.34-1.17.59-1.81.75L13.42 22h-2.84l-.45-2.16a7.95 7.95 0 0 1-1.81-.75l-1.9 1.12-2.01-2.01 1.12-1.9a7.95 7.95 0 0 1-.75-1.81L2 13.42v-2.84l2.16-.45c.16-.64.41-1.25.75-1.81l-1.12-1.9 2.01-2.01 1.9 1.12c.56-.34 1.17-.59 1.81-.75L10.58 2Zm1.42 6.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M14.53 2.11a.5.5 0 0 1 .49.4l.38 2.77c.58.2 1.11.5 1.61.9l2.35-.94a.5.5 0 0 1 .6.22l1.88 3.25a.5.5 0 0 1-.12.64l-1.99 1.55c.04.3.06.61.06.91s-.02.61-.06.91l1.99 1.55a.5.5 0 0 1 .12.64l-1.88 3.25a.5.5 0 0 1-.6.22l-2.35-.94c-.5.4-1.03.7-1.61.9l-.38 2.77a.5.5 0 0 1-.49.4h-3.76a.5.5 0 0 1-.49-.4l-.38-2.77a6.56 6.56 0 0 1-1.61-.9l-2.35.94a.5.5 0 0 1-.6-.22L2.76 15.1a.5.5 0 0 1 .12-.64l1.99-1.55a6.41 6.41 0 0 1 0-1.82L2.88 9.54a.5.5 0 0 1-.12-.64l1.88-3.25a.5.5 0 0 1 .6-.22l2.35.94c.5-.4 1.03-.7 1.61-.9l.38-2.77a.5.5 0 0 1 .49-.4h3.76ZM12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M14.53 2.11a.5.5 0 0 1 .49.4l.38 2.77c.58.2 1.11.5 1.61.9l2.35-.94a.5.5 0 0 1 .6.22l1.88 3.25a.5.5 0 0 1-.12.64l-1.99 1.55c.04.3.06.61.06.91s-.02.61-.06.91l1.99 1.55a.5.5 0 0 1 .12.64l-1.88 3.25a.5.5 0 0 1-.6.22l-2.35-.94c-.5.4-1.03.7-1.61.9l-.38 2.77a.5.5 0 0 1-.49.4h-3.76a.5.5 0 0 1-.49-.4l-.38-2.77a6.56 6.56 0 0 1-1.61-.9l-2.35.94a.5.5 0 0 1-.6-.22L2.76 15.1a.5.5 0 0 1 .12-.64l1.99-1.55a6.41 6.41 0 0 1 0-1.82L2.88 9.54a.5.5 0 0 1-.12-.64l1.88-3.25a.5.5 0 0 1 .6-.22l2.35.94c.5-.4 1.03-.7 1.61-.9l.38-2.77a.5.5 0 0 1 .49-.4h3.76ZM12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .settings-toggle.active {
   background: #1f6f54;
   color: #ffffff;
   border-color: #1f6f54;
-}
-
-.settings-toggle.active::after {
-  color: #ffffff;
 }
 
 .rail-button svg {
@@ -465,8 +461,14 @@ progress {
 }
 
 .player-host {
+  display: block;
   width: 100%;
   height: 100%;
+  background: #000000;
+}
+
+.player-warning {
+  margin: 0;
 }
 
 .export-actions {
@@ -534,6 +536,97 @@ progress {
   display: grid;
   gap: 16px;
   min-height: 0;
+}
+
+.debug-panel {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+}
+
+.debug-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.debug-panel h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.debug-hint {
+  margin: 0;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 2px 6px;
+  border: 1px solid #bcc8b6;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #213026;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.debug-log-list {
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 320px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.debug-log-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d8ded3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.debug-log-topline,
+.debug-log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.debug-log-topline span,
+.debug-log-meta span {
+  color: #607064;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.debug-log-card details {
+  border: 1px solid #e1e6dc;
+  border-radius: 6px;
+  background: #f8faf6;
+  padding: 8px 10px;
+}
+
+.debug-log-card summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.debug-log-card pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.debug-log-error {
+  margin: 0;
 }
 
 .history-list {
@@ -839,8 +932,11 @@ mark.danger {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto 1fr auto;
+    height: calc(100vh - 48px);
+    max-height: calc(100vh - 48px);
     align-items: start;
     row-gap: 16px;
+    overflow: hidden;
   }
 
   .result-panel.focus-layout .status-bar {
@@ -848,12 +944,16 @@ mark.danger {
   }
 
   .result-panel.focus-layout .player-panel {
-    position: sticky;
-    top: 24px;
+    position: static;
     grid-column: 1;
     grid-row: 2;
     margin-bottom: 0;
     z-index: 2;
+  }
+
+  .result-panel.focus-layout .player-frame-wrap {
+    aspect-ratio: auto;
+    height: clamp(240px, 38vh, 420px);
   }
 
   .result-panel.focus-layout .interactive-summary-bar,
@@ -865,11 +965,28 @@ mark.danger {
 
   .result-panel.focus-layout .sentence-list,
   .result-panel.focus-layout .plain-transcript {
+    min-height: 0;
+    overflow: auto;
+    padding-right: 6px;
     padding-bottom: 8px;
   }
 
+  .result-panel.focus-layout .plain-transcript {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+  }
+
+  .result-panel.focus-layout .plain-transcript textarea {
+    min-height: 0;
+    height: 100%;
+  }
+
   .result-panel.focus-layout .interactive-footer {
+    position: static;
     z-index: 2;
+    margin-top: 0;
+    padding-top: 0;
   }
 
   .interactive-footer-main {

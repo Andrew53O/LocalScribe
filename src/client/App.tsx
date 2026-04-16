@@ -39,6 +39,18 @@ interface PlayerState {
   videoId: string;
 }
 
+interface DebugEntry {
+  id: string;
+  method: string;
+  url: string;
+  startedAt: string;
+  durationMs: number;
+  status?: number;
+  requestBody?: string;
+  responseBody?: string;
+  error?: string;
+}
+
 interface LocalPrerequisite {
   key: "ytDlp" | "ffmpeg" | "whisperBin" | "whisperModel";
   label: string;
@@ -73,7 +85,7 @@ interface HistoryItem {
   savedAt: string;
 }
 
-type ControlView = "transcribe" | "history";
+type ControlView = "transcribe" | "history" | "debug";
 type TimeFieldName = "startTime" | "endTime";
 
 const defaultLocalSettings: LocalSettings = {
@@ -89,7 +101,7 @@ const defaultLocalSettings: LocalSettings = {
 
 export function App() {
   const resultPanelRef = useRef<HTMLElement | null>(null);
-  const playerHostRef = useRef<HTMLDivElement | null>(null);
+  const playerIframeRef = useRef<HTMLIFrameElement | null>(null);
   const youtubePlayerRef = useRef<YoutubePlayer | null>(null);
   const activeSentenceIndexRef = useRef<number | null>(null);
   const timeFieldStateRef = useRef<Record<TimeFieldName, { segmentIndex: number; firstDigit: string } | null>>({
@@ -126,6 +138,11 @@ export function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [playerFocusMode, setPlayerFocusMode] = useState(false);
   const [isControlPanelCollapsed, setIsControlPanelCollapsed] = useState(false);
+  const [debugEnabled, setDebugEnabled] = useState(() => localStorage.getItem("yt-transcriber-debug") === "true");
+  const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([]);
+  const [playerApiStatus, setPlayerApiStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [playerApiError, setPlayerApiError] = useState("");
+  const [iframePlaybackRequest, setIframePlaybackRequest] = useState({ startSeconds: 0, nonce: 0 });
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const playerState = useMemo(() => createPlayerState(form.youtubeUrl), [form.youtubeUrl]);
@@ -180,6 +197,16 @@ export function App() {
     );
   }, [historyItems, historyQuery]);
 
+  const appendDebugEntry = (entry: Omit<DebugEntry, "id">) => {
+    setDebugEntries((current) => [
+      {
+        id: crypto.randomUUID(),
+        ...entry
+      },
+      ...current
+    ].slice(0, 80));
+  };
+
   useEffect(() => {
     activeSentenceIndexRef.current = activeSentenceIndex;
   }, [activeSentenceIndex]);
@@ -189,8 +216,11 @@ export function App() {
 
     async function refreshHealth() {
       try {
-        const response = await fetch("/api/health");
-        const payload = (await response.json()) as HealthStatus;
+        const { data: payload } = await performTrackedRequest<HealthStatus>({
+          url: "/api/health",
+          responseType: "json",
+          onComplete: appendDebugEntry
+        });
 
         if (!cancelled) {
           setHealth(payload);
@@ -216,8 +246,28 @@ export function App() {
   }, [settings]);
 
   useEffect(() => {
+    localStorage.setItem("yt-transcriber-debug", String(debugEnabled));
+
+    if (!debugEnabled && controlView === "debug") {
+      setControlView("transcribe");
+    }
+  }, [controlView, debugEnabled]);
+
+  useEffect(() => {
     localStorage.setItem("yt-transcriber-history", JSON.stringify(historyItems));
   }, [historyItems]);
+
+  useEffect(() => {
+    function handleDebugShortcut(event: globalThis.KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        setDebugEnabled((current) => !current);
+      }
+    }
+
+    window.addEventListener("keydown", handleDebugShortcut);
+    return () => window.removeEventListener("keydown", handleDebugShortcut);
+  }, []);
 
   useEffect(() => {
     if (!result) {
@@ -280,8 +330,11 @@ export function App() {
 
     const timeoutId = window.setTimeout(async () => {
       try {
-        const response = await fetch(`/api/video-metadata?youtubeUrl=${encodeURIComponent(youtubeUrl)}`);
-        const payload = await response.json();
+        const { response, data: payload } = await performTrackedRequest<VideoMetadata | { error?: string }>({
+          url: `/api/video-metadata?youtubeUrl=${encodeURIComponent(youtubeUrl)}`,
+          responseType: "json",
+          onComplete: appendDebugEntry
+        });
 
         if (cancelled) {
           return;
@@ -290,7 +343,7 @@ export function App() {
         if (!response.ok) {
           setVideoMetadata(null);
           setMetadataStatus("error");
-          setMetadataError(payload.error ?? "Unable to fetch video duration.");
+          setMetadataError("error" in payload ? (payload.error ?? "Unable to fetch video duration.") : "Unable to fetch video duration.");
           return;
         }
 
@@ -319,16 +372,23 @@ export function App() {
     }
 
     const id = window.setInterval(async () => {
-      const response = await fetch(`/api/transcriptions/${job.id}`);
-      const nextJob = (await response.json()) as JobRecord;
+      const { data: nextJob } = await performTrackedRequest<JobRecord>({
+        url: `/api/transcriptions/${job.id}`,
+        responseType: "json",
+        onComplete: appendDebugEntry
+      });
       setJob(nextJob);
       if (nextJob.result) {
         setResult(nextJob.result);
       }
 
       if (nextJob.status === "completed" && !nextJob.result) {
-        const resultResponse = await fetch(`/api/transcriptions/${job.id}/result`);
-        setResult((await resultResponse.json()) as TranscriptionResult);
+        const { data } = await performTrackedRequest<TranscriptionResult>({
+          url: `/api/transcriptions/${job.id}/result`,
+          responseType: "json",
+          onComplete: appendDebugEntry
+        });
+        setResult(data);
       }
     }, 1200);
 
@@ -380,30 +440,76 @@ export function App() {
     if (!playerState) {
       youtubePlayerRef.current?.destroy();
       youtubePlayerRef.current = null;
+      setPlayerApiStatus("idle");
+      setPlayerApiError("");
       setPlayerFocusMode(false);
       setIsControlPanelCollapsed(false);
+      setIframePlaybackRequest({ startSeconds: 0, nonce: 0 });
       return;
     }
 
     let cancelled = false;
+    let readyTimerId = 0;
+    let playerReady = false;
 
-    void loadYouTubeIframeApi().then(() => {
-      if (cancelled || !playerHostRef.current || !window.YT?.Player) {
-        return;
-      }
+    setPlayerApiStatus("loading");
+    setPlayerApiError("");
 
-      youtubePlayerRef.current?.destroy();
-      youtubePlayerRef.current = new window.YT.Player(playerHostRef.current, {
-        videoId: playerState.videoId,
-        playerVars: {
-          playsinline: 1,
-          rel: 0
+    void loadYouTubeIframeApi()
+      .then(() => {
+        if (cancelled || !playerIframeRef.current || !window.YT?.Player) {
+          return;
+        }
+
+        youtubePlayerRef.current?.destroy();
+        youtubePlayerRef.current = new window.YT.Player(playerIframeRef.current, {
+          playerVars: {
+            playsinline: 1,
+            rel: 0
+          },
+          events: {
+            onReady: () => {
+              if (cancelled) {
+                return;
+              }
+
+              playerReady = true;
+              window.clearTimeout(readyTimerId);
+              setPlayerApiStatus("ready");
+              setPlayerApiError("");
+            },
+            onError: () => {
+              if (cancelled) {
+                return;
+              }
+
+              window.clearTimeout(readyTimerId);
+              playerReady = false;
+              setPlayerApiStatus("error");
+              setPlayerApiError("YouTube player API failed to initialize. The fallback embed is still available.");
+            }
+          }
+        });
+
+        readyTimerId = window.setTimeout(() => {
+          if (cancelled || playerReady) {
+            return;
+          }
+
+          setPlayerApiStatus("error");
+          setPlayerApiError("YouTube player API timed out. The fallback embed is still available.");
+        }, 5000);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlayerApiStatus("error");
+          setPlayerApiError("Unable to load the YouTube player API. The fallback embed is still available.");
         }
       });
-    });
 
     return () => {
       cancelled = true;
+      window.clearTimeout(readyTimerId);
       youtubePlayerRef.current?.destroy();
       youtubePlayerRef.current = null;
     };
@@ -462,15 +568,18 @@ export function App() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("/api/transcriptions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(form)
+      const { response, data: payload } = await performTrackedRequest<JobRecord | { error?: string }>({
+        url: "/api/transcriptions",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(form)
+        },
+        responseType: "json",
+        onComplete: appendDebugEntry
       });
-
-      const payload = await response.json();
       if (!response.ok) {
-        setError(payload.error ?? "Unable to start transcription.");
+        setError("error" in payload ? (payload.error ?? "Unable to start transcription.") : "Unable to start transcription.");
         return;
       }
 
@@ -490,8 +599,11 @@ export function App() {
       return;
     }
 
-    const response = await fetch(`/api/transcriptions/${job.id}/result?format=${format}`);
-    const content = await response.text();
+    const { response, data: content } = await performTrackedRequest<string>({
+      url: `/api/transcriptions/${job.id}/result?format=${format}`,
+      responseType: "text",
+      onComplete: appendDebugEntry
+    });
 
     if (!response.ok) {
       setError("Unable to download transcript.");
@@ -589,7 +701,15 @@ export function App() {
     setActiveSentenceIndex(index);
     activeSentenceIndexRef.current = index;
 
-    if (!playerState || !youtubePlayerRef.current) {
+    if (!playerState) {
+      return;
+    }
+
+    if (!youtubePlayerRef.current) {
+      setIframePlaybackRequest((current) => ({
+        startSeconds: Math.max(0, Math.floor(seconds)),
+        nonce: current.nonce + 1
+      }));
       return;
     }
 
@@ -769,17 +889,38 @@ export function App() {
               >
                 <SettingsIcon />
               </button>
+              {debugEnabled ? (
+                <button
+                  className={`icon-button rail-button ${controlView === "debug" ? "active" : ""}`}
+                  type="button"
+                  aria-label="Open debug panel"
+                  title="Debug"
+                  onClick={() => openControlView("debug")}
+                >
+                  <DebugIcon />
+                </button>
+              ) : null}
             </div>
           ) : (
             <>
           <div className="control-header">
-            <div className="segmented control-tabs" role="tablist" aria-label="Control views">
+            <div
+              className="segmented control-tabs"
+              role="tablist"
+              aria-label="Control views"
+              style={{ gridTemplateColumns: `repeat(${debugEnabled ? 3 : 2}, 1fr)` }}
+            >
               <button className={controlView === "transcribe" ? "active" : ""} type="button" onClick={() => openControlView("transcribe")}>
                 Transcribe
               </button>
               <button className={controlView === "history" ? "active" : ""} type="button" onClick={() => openControlView("history")}>
                 History
               </button>
+              {debugEnabled ? (
+                <button className={controlView === "debug" ? "active" : ""} type="button" onClick={() => openControlView("debug")}>
+                  Debug
+                </button>
+              ) : null}
             </div>
             <button
               className={`icon-button settings-toggle ${showSettings ? "active" : ""}`}
@@ -933,6 +1074,57 @@ export function App() {
                     <p className="eyebrow">History</p>
                     <h2>No saved videos yet</h2>
                     <p>Completed transcriptions are saved locally with thumbnail, title, and link.</p>
+                  </div>
+                )}
+              </div>
+            </section>
+          ) : controlView === "debug" ? (
+            <section className="debug-panel" aria-label="Debug network panel">
+              <div className="debug-panel-header">
+                <div>
+                  <p className="eyebrow">Hidden Debug</p>
+                  <h2>Client request log</h2>
+                </div>
+                <button className="icon-button" type="button" onClick={() => setDebugEntries([])} aria-label="Clear debug log" title="Clear debug log">
+                  <CloseIcon />
+                </button>
+              </div>
+              <p className="subtle debug-hint">
+                Toggle this panel with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>. It records frontend requests to the local API, including status, duration, request payload, and a response snippet.
+              </p>
+              <div className="debug-log-list">
+                {debugEntries.length > 0 ? (
+                  debugEntries.map((entry) => (
+                    <article className="debug-log-card" key={entry.id}>
+                      <div className="debug-log-topline">
+                        <strong>{entry.method}</strong>
+                        <span>{entry.url}</span>
+                      </div>
+                      <div className="debug-log-meta">
+                        <span>{entry.status ? `HTTP ${entry.status}` : "Request error"}</span>
+                        <span>{Math.round(entry.durationMs)} ms</span>
+                        <span>{formatSavedAt(entry.startedAt)}</span>
+                      </div>
+                      {entry.error ? <p className="error debug-log-error">{entry.error}</p> : null}
+                      {entry.requestBody ? (
+                        <details>
+                          <summary>Request</summary>
+                          <pre>{entry.requestBody}</pre>
+                        </details>
+                      ) : null}
+                      {entry.responseBody ? (
+                        <details>
+                          <summary>Response</summary>
+                          <pre>{entry.responseBody}</pre>
+                        </details>
+                      ) : null}
+                    </article>
+                  ))
+                ) : (
+                  <div className="empty-history">
+                    <p className="eyebrow">Debug</p>
+                    <h2>No requests captured yet</h2>
+                    <p>Start metadata lookup or a transcription job to inspect the client API traffic.</p>
                   </div>
                 )}
               </div>
@@ -1108,8 +1300,18 @@ export function App() {
                     </div>
                   </div>
                   <div className="player-frame-wrap">
-                    <div id="youtube-player-frame" ref={playerHostRef} className="player-host" />
+                    <iframe
+                      key={`${playerState.videoId}-${iframePlaybackRequest.nonce}`}
+                      ref={playerIframeRef}
+                      className="player-host"
+                      src={buildPlayerEmbedUrl(playerState, iframePlaybackRequest.startSeconds, iframePlaybackRequest.nonce > 0)}
+                      title="YouTube player"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                      referrerPolicy="strict-origin-when-cross-origin"
+                    />
                   </div>
+                  {playerApiStatus === "error" ? <p className="warning player-warning">{playerApiError}</p> : null}
                 </section>
               ) : null}
               {!isInteractiveMode ? (
@@ -1585,6 +1787,20 @@ function createPlayerState(youtubeUrl: string): PlayerState | null {
   };
 }
 
+function buildPlayerEmbedUrl(playerState: PlayerState, startSeconds = 0, autoplay = false): string {
+  const url = new URL(playerState.embedUrl);
+  url.searchParams.set("origin", window.location.origin);
+
+  if (startSeconds > 0) {
+    url.searchParams.set("start", String(Math.floor(startSeconds)));
+  } else {
+    url.searchParams.delete("start");
+  }
+
+  url.searchParams.set("autoplay", autoplay ? "1" : "0");
+  return url.toString();
+}
+
 function extractYoutubeVideoId(value: string): string | null {
   try {
     const url = new URL(value);
@@ -1623,6 +1839,17 @@ function SettingsIcon() {
       <path d="M19.15 12h2.1" />
       <path d="m4.93 19.07 1.49-1.49" />
       <path d="m17.58 6.42 1.49-1.49" />
+    </svg>
+  );
+}
+
+function DebugIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="5" width="16" height="14" rx="2.5" />
+      <path d="M9 9h6" />
+      <path d="M9 13h6" />
+      <path d="M9 17h4" />
     </svg>
   );
 }
@@ -1676,15 +1903,23 @@ interface YoutubePlayer {
   seekTo(seconds: number, allowSeekAhead: boolean): void;
 }
 
+interface YoutubePlayerEvent {
+  target: YoutubePlayer;
+}
+
 declare global {
   interface Window {
     onYouTubeIframeAPIReady?: () => void;
     YT?: {
       Player: new (
-        element: HTMLElement,
+        element: HTMLElement | HTMLIFrameElement,
         options: {
-          videoId: string;
+          videoId?: string;
           playerVars?: Record<string, number>;
+          events?: {
+            onReady?: (event: YoutubePlayerEvent) => void;
+            onError?: () => void;
+          };
         }
       ) => YoutubePlayer;
     };
@@ -1702,11 +1937,12 @@ function loadYouTubeIframeApi(): Promise<void> {
     return youtubeIframeApiPromise;
   }
 
-  youtubeIframeApiPromise = new Promise<void>((resolve) => {
+  youtubeIframeApiPromise = new Promise<void>((resolve, reject) => {
     const existingScript = document.querySelector<HTMLScriptElement>('script[src="https://www.youtube.com/iframe_api"]');
     if (!existingScript) {
       const script = document.createElement("script");
       script.src = "https://www.youtube.com/iframe_api";
+      script.onerror = () => reject(new Error("Failed to load the YouTube iframe API."));
       document.head.appendChild(script);
     }
 
@@ -1718,6 +1954,69 @@ function loadYouTubeIframeApi(): Promise<void> {
   });
 
   return youtubeIframeApiPromise;
+}
+
+async function performTrackedRequest<T>({
+  url,
+  init,
+  responseType,
+  onComplete
+}: {
+  url: string;
+  init?: RequestInit;
+  responseType: "json" | "text";
+  onComplete: (entry: Omit<DebugEntry, "id">) => void;
+}): Promise<{ response: Response; data: T }> {
+  const startedAt = new Date().toISOString();
+  const started = performance.now();
+  const method = init?.method ?? "GET";
+  const requestBody = summarizeRequestBody(init?.body);
+
+  try {
+    const response = await fetch(url, init);
+    const rawBody = await response.text();
+
+    onComplete({
+      method,
+      url,
+      startedAt,
+      durationMs: performance.now() - started,
+      status: response.status,
+      requestBody,
+      responseBody: truncateDebugText(rawBody)
+    });
+
+    const data = (responseType === "json" ? (rawBody ? JSON.parse(rawBody) : {}) : rawBody) as T;
+    return { response, data };
+  } catch (error) {
+    onComplete({
+      method,
+      url,
+      startedAt,
+      durationMs: performance.now() - started,
+      requestBody,
+      error: error instanceof Error ? error.message : "Request failed"
+    });
+    throw error;
+  }
+}
+
+function summarizeRequestBody(body: RequestInit["body"]): string | undefined {
+  if (!body || typeof body !== "string") {
+    return undefined;
+  }
+
+  return truncateDebugText(body);
+}
+
+function truncateDebugText(value: string, maxLength = 1200): string {
+  const normalized = value.trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}…`;
 }
 
 function findSentenceIndexForTime(sentences: TranscriptionResult["sentences"], currentTime: number): number | null {

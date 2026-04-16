@@ -154,6 +154,20 @@ textarea {
   height: 18px;
 }
 
+.local-settings {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d8ded3;
+  border-radius: 8px;
+  background: #f8faf6;
+}
+
+.local-settings h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
 .primary {
   min-height: 46px;
   border: 0;

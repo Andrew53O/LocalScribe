@@ -13,8 +13,23 @@ const initialForm = {
   convertToTraditional: true
 };
 
+interface LocalSettings {
+  defaultLanguage: LanguageHint;
+  defaultModel: LocalModel;
+}
+
+const defaultLocalSettings: LocalSettings = {
+  defaultLanguage: "auto",
+  defaultModel: "large-v3-turbo-q8_0"
+};
+
 export function App() {
-  const [form, setForm] = useState(initialForm);
+  const [settings, setSettings] = useState<LocalSettings>(() => loadLocalSettings());
+  const [form, setForm] = useState(() => ({
+    ...initialForm,
+    languageHint: settings.defaultLanguage,
+    localModel: settings.defaultModel
+  }));
   const [job, setJob] = useState<JobRecord | null>(null);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [health, setHealth] = useState<{ localConfigured: boolean; openaiConfigured: boolean } | null>(null);
@@ -38,6 +53,10 @@ export function App() {
       .then(setHealth)
       .catch(() => setHealth(null));
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem("yt-transcriber-settings", JSON.stringify(settings));
+  }, [settings]);
 
   useEffect(() => {
     if (!result) {
@@ -141,6 +160,16 @@ export function App() {
     }
 
     window.open(`/api/transcriptions/${job.id}/result?format=${format}`, "_blank");
+  }
+
+  function updateDefaultLanguage(defaultLanguage: LanguageHint) {
+    setSettings((current) => ({ ...current, defaultLanguage }));
+    setForm((current) => ({ ...current, languageHint: defaultLanguage }));
+  }
+
+  function updateDefaultModel(defaultModel: LocalModel) {
+    setSettings((current) => ({ ...current, defaultModel }));
+    setForm((current) => ({ ...current, localModel: defaultModel }));
   }
 
   async function copyPlainTranscript() {
@@ -254,6 +283,36 @@ export function App() {
             Prefer Traditional Chinese cleanup
           </label>
 
+          <section className="local-settings" aria-label="Local settings">
+            <div>
+              <p className="eyebrow">Local Settings</p>
+              <h2>Defaults</h2>
+            </div>
+            <label>
+              Default language
+              <select
+                value={settings.defaultLanguage}
+                onChange={(event) => updateDefaultLanguage(event.target.value as LanguageHint)}
+              >
+                <option value="auto">Auto / mixed</option>
+                <option value="en">English</option>
+                <option value="zh-TW">Chinese Taiwan</option>
+                <option value="id">Indonesian</option>
+              </select>
+            </label>
+            <label>
+              Default model
+              <select
+                value={settings.defaultModel}
+                onChange={(event) => updateDefaultModel(event.target.value as LocalModel)}
+              >
+                <option value="large-v3-turbo-q8_0">large-v3-turbo-q8_0 - 834 MiB</option>
+                <option value="large-v3-turbo-q5_0">large-v3-turbo-q5_0 - 547 MiB</option>
+                <option value="large-v3">large-v3 - 2.9 GiB</option>
+              </select>
+            </label>
+          </section>
+
           {health && !health.localConfigured && form.provider === "local" ? (
             <p className="warning">Set WHISPER_CPP_BIN and WHISPER_MODEL_PATH in `.env` before running local mode.</p>
           ) : null}
@@ -351,6 +410,32 @@ function formatTimeInput(value: string): string {
   }
 
   return `${digits.slice(0, -4)}:${digits.slice(-4, -2)}:${digits.slice(-2)}`;
+}
+
+function loadLocalSettings(): LocalSettings {
+  try {
+    const raw = localStorage.getItem("yt-transcriber-settings");
+    if (!raw) {
+      return defaultLocalSettings;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<LocalSettings>;
+
+    return {
+      defaultLanguage: isLanguageHint(parsed.defaultLanguage) ? parsed.defaultLanguage : defaultLocalSettings.defaultLanguage,
+      defaultModel: isLocalModel(parsed.defaultModel) ? parsed.defaultModel : defaultLocalSettings.defaultModel
+    };
+  } catch {
+    return defaultLocalSettings;
+  }
+}
+
+function isLanguageHint(value: unknown): value is LanguageHint {
+  return value === "auto" || value === "en" || value === "zh-TW" || value === "id";
+}
+
+function isLocalModel(value: unknown): value is LocalModel {
+  return value === "large-v3-turbo-q8_0" || value === "large-v3-turbo-q5_0" || value === "large-v3";
 }
 
 function formatElapsedTime(startValue: string, endValue: string | number): string {

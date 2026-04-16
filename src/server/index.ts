@@ -10,6 +10,7 @@ import { parseTimestamp } from "./lib/time.js";
 import { transcriptionRequestSchema } from "./lib/validation.js";
 import { getYoutubeVideoMetadata } from "./services/audio.js";
 import { createJob, getJob } from "./services/jobs.js";
+import { getLocalPrerequisiteStatus } from "./services/prerequisites.js";
 
 await loadLocalEnv();
 
@@ -24,11 +25,16 @@ await app.register(cors, {
   origin: true
 });
 
-app.get("/api/health", async () => ({
-  ok: true,
-  localConfigured: Boolean(process.env.WHISPER_CPP_BIN && process.env.WHISPER_MODEL_PATH),
-  openaiConfigured: Boolean(process.env.OPENAI_API_KEY)
-}));
+app.get("/api/health", async () => {
+  const localStatus = await getLocalPrerequisiteStatus();
+
+  return {
+    ok: true,
+    localConfigured: localStatus.ok,
+    localPrerequisites: localStatus.tools,
+    openaiConfigured: Boolean(process.env.OPENAI_API_KEY)
+  };
+});
 
 app.get("/api/video-metadata", async (request, reply) => {
   const query = request.query as { youtubeUrl?: string };

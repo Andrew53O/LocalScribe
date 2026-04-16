@@ -190,6 +190,16 @@ textarea {
   border: 1px solid #f0d28b;
 }
 
+.warning-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.prerequisite-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .error {
   background: #ffe6e2;
   color: #8a1f11;

@@ -25,6 +25,20 @@ interface VideoMetadata {
   title?: string;
 }
 
+interface LocalPrerequisite {
+  key: "ytDlp" | "ffmpeg" | "whisperBin" | "whisperModel";
+  label: string;
+  ok: boolean;
+  path?: string;
+  error?: string;
+}
+
+interface HealthStatus {
+  localConfigured: boolean;
+  localPrerequisites: LocalPrerequisite[];
+  openaiConfigured: boolean;
+}
+
 const defaultLocalSettings: LocalSettings = {
   defaultLanguage: "auto",
   defaultModel: "large-v3-turbo-q8_0"
@@ -39,7 +53,7 @@ export function App() {
   }));
   const [job, setJob] = useState<JobRecord | null>(null);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
-  const [health, setHealth] = useState<{ localConfigured: boolean; openaiConfigured: boolean } | null>(null);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
   const [error, setError] = useState("");
   const [displayedProgress, setDisplayedProgress] = useState(0);
   const [elapsedNow, setElapsedNow] = useState(Date.now());
@@ -396,7 +410,18 @@ export function App() {
           </section>
 
           {health && !health.localConfigured && form.provider === "local" ? (
-            <p className="warning">Set WHISPER_CPP_BIN and WHISPER_MODEL_PATH in `.env` before running local mode.</p>
+            <div className="warning">
+              <p className="warning-title">Local setup is incomplete.</p>
+              <ul className="prerequisite-list">
+                {health.localPrerequisites
+                  .filter((item) => !item.ok)
+                  .map((item) => (
+                    <li key={item.key}>
+                      <strong>{item.label}:</strong> {item.error ?? "Missing"}
+                    </li>
+                  ))}
+              </ul>
+            </div>
           ) : null}
 
           {error ? <p className="error">{error}</p> : null}

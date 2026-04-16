@@ -77,6 +77,8 @@ Avoid `.en` models for this app because they are English-only.
 
 6. Open `http://127.0.0.1:5173`.
 
+The app now checks `yt-dlp`, `ffmpeg`, `whisper-cli`, and the model file on startup. If any local prerequisite is missing, the UI shows which one failed.
+
 ## NVIDIA GPU Acceleration
 
 Yes, this project can use an NVIDIA graphics card. The app runs whatever `whisper-cli.exe` you put in `WHISPER_CPP_BIN`, and it does not pass `--no-gpu`, so a GPU-enabled whisper.cpp build can use the GPU automatically.

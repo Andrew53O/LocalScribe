@@ -184,10 +184,16 @@ textarea {
 
 .status-bar {
   display: grid;
-  grid-template-columns: 1fr minmax(120px, 280px) 52px;
+  grid-template-columns: 1fr auto minmax(120px, 280px) 64px;
   gap: 12px;
   align-items: center;
   margin-bottom: 22px;
+}
+
+.elapsed-time {
+  color: #607064;
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 progress {
@@ -311,5 +317,9 @@ mark.danger {
   .status-bar,
   .result-header {
     display: grid;
+  }
+
+  .status-bar {
+    grid-template-columns: 1fr;
   }
 }

@@ -20,9 +20,11 @@ export function App() {
   const [health, setHealth] = useState<{ localConfigured: boolean; openaiConfigured: boolean } | null>(null);
   const [error, setError] = useState("");
   const [displayedProgress, setDisplayedProgress] = useState(0);
+  const [elapsedNow, setElapsedNow] = useState(Date.now());
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const progressLabel = displayedProgress.toFixed(1);
+  const elapsedLabel = job ? formatElapsedTime(job.createdAt, job.status === "completed" || job.status === "failed" ? job.updatedAt : elapsedNow) : "";
   const reviewCount = useMemo(
     () => result?.sentences.filter((sentence) => sentence.qualityStatus === "review").length ?? 0,
     [result]
@@ -83,10 +85,23 @@ export function App() {
     return () => window.clearInterval(id);
   }, [job?.id, job?.progress, job?.status]);
 
+  useEffect(() => {
+    if (!isWorking) {
+      return;
+    }
+
+    const id = window.setInterval(() => {
+      setElapsedNow(Date.now());
+    }, 500);
+
+    return () => window.clearInterval(id);
+  }, [isWorking]);
+
   async function submit() {
     setError("");
     setResult(null);
     setDisplayedProgress(0);
+    setElapsedNow(Date.now());
 
     const response = await fetch("/api/transcriptions", {
       method: "POST",
@@ -225,6 +240,7 @@ export function App() {
           {job ? (
             <div className="status-bar">
               <span>{job.message}</span>
+              <span className="elapsed-time">Elapsed {elapsedLabel}</span>
               <progress max="100" value={displayedProgress} />
               <span>{progressLabel}%</span>
             </div>
@@ -275,4 +291,19 @@ function downloadFile(filename: string, content: string, type: string) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function formatElapsedTime(startValue: string, endValue: string | number): string {
+  const start = new Date(startValue).getTime();
+  const end = typeof endValue === "number" ? endValue : new Date(endValue).getTime();
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return "00:00";
+  }
+
+  const totalSeconds = Math.floor((end - start) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }

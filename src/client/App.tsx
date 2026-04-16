@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { JobRecord, LanguageHint, LocalModel, Provider, TranscriptionResult } from "../shared/types";
+import type { GpuStatus, JobRecord, LanguageHint, LocalModel, Provider, TranscriptionResult } from "../shared/types";
 import { TranscriptView } from "./components/TranscriptView";
 
 const initialForm = {
@@ -10,7 +10,13 @@ const initialForm = {
   provider: "local" as Provider,
   localModel: "large-v3-turbo-q8_0" as LocalModel,
   glossary: "",
-  convertToTraditional: true
+  convertToTraditional: true,
+  localSpeed: {
+    beamSize: 5,
+    bestOf: 5,
+    threads: 4,
+    vadEnabled: false
+  }
 };
 
 interface LocalSettings {
@@ -42,6 +48,7 @@ interface LocalPrerequisite {
 interface HealthStatus {
   localConfigured: boolean;
   localPrerequisites: LocalPrerequisite[];
+  gpuStatus: GpuStatus;
   openaiConfigured: boolean;
 }
 
@@ -190,7 +197,7 @@ export function App() {
   }, [result]);
 
   useEffect(() => {
-    if (!result || !form.youtubeUrl.trim()) {
+    if (!result || !form.youtubeUrl.trim() || job?.status !== "completed") {
       return;
     }
 
@@ -204,7 +211,7 @@ export function App() {
 
       return next.slice(0, 30);
     });
-  }, [result, form.youtubeUrl, videoMetadata]);
+  }, [result, form.youtubeUrl, videoMetadata, job?.status]);
 
   useEffect(() => {
     const youtubeUrl = form.youtubeUrl.trim();
@@ -264,8 +271,11 @@ export function App() {
       const response = await fetch(`/api/transcriptions/${job.id}`);
       const nextJob = (await response.json()) as JobRecord;
       setJob(nextJob);
+      if (nextJob.result) {
+        setResult(nextJob.result);
+      }
 
-      if (nextJob.status === "completed") {
+      if (nextJob.status === "completed" && !nextJob.result) {
         const resultResponse = await fetch(`/api/transcriptions/${job.id}/result`);
         setResult((await resultResponse.json()) as TranscriptionResult);
       }
@@ -680,6 +690,90 @@ export function App() {
             </select>
           </label>
 
+          {form.provider === "local" ? (
+            <section className="speed-settings" aria-label="Local speed settings">
+              <div>
+                <p className="eyebrow">Speed</p>
+                <h2>Local transcription</h2>
+              </div>
+              <div className="speed-grid">
+                <label>
+                  Beam size
+                  <input
+                    inputMode="numeric"
+                    min="1"
+                    max="10"
+                    type="number"
+                    value={form.localSpeed.beamSize}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        localSpeed: {
+                          ...form.localSpeed,
+                          beamSize: clampNumber(event.target.value, 1, 10, form.localSpeed.beamSize)
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Best of
+                  <input
+                    inputMode="numeric"
+                    min="1"
+                    max="10"
+                    type="number"
+                    value={form.localSpeed.bestOf}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        localSpeed: {
+                          ...form.localSpeed,
+                          bestOf: clampNumber(event.target.value, 1, 10, form.localSpeed.bestOf)
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Threads
+                  <input
+                    inputMode="numeric"
+                    min="1"
+                    max="32"
+                    type="number"
+                    value={form.localSpeed.threads}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        localSpeed: {
+                          ...form.localSpeed,
+                          threads: clampNumber(event.target.value, 1, 32, form.localSpeed.threads)
+                        }
+                      })
+                    }
+                  />
+                </label>
+                <label className="checkbox-row speed-toggle">
+                  <input
+                    type="checkbox"
+                    checked={form.localSpeed.vadEnabled}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        localSpeed: {
+                          ...form.localSpeed,
+                          vadEnabled: event.target.checked
+                        }
+                      })
+                    }
+                  />
+                  VAD silence skip
+                </label>
+              </div>
+            </section>
+          ) : null}
+
           <label>
             Glossary
             <textarea
@@ -771,6 +865,9 @@ export function App() {
                   <h2>{result.sentences.length} sentences</h2>
                   <p className="subtle">
                     {result.provider} - {result.model} - {reviewCount} need review
+                    {result.partial && result.totalChunks
+                      ? ` - live ${result.completedChunks ?? 0}/${result.totalChunks} chunks`
+                      : ""}
                   </p>
                 </div>
                 <div className="export-actions">
@@ -990,6 +1087,32 @@ function formatDuration(totalSeconds: number): string {
   return [hours, minutes, seconds]
     .map((part) => String(part).padStart(2, "0"))
     .join(":");
+}
+
+function clampNumber(value: string, min: number, max: number, fallback: number): number {
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function formatGpuStatus(gpuStatus: GpuStatus): string {
+  if (!gpuStatus.available) {
+    return "GPU: CPU mode";
+  }
+
+  const device = gpuStatus.devices[0] ?? "Unknown GPU";
+  const metrics = [
+    gpuStatus.utilizationPercent !== undefined ? `${Math.round(gpuStatus.utilizationPercent)}% util` : "",
+    gpuStatus.memoryUsedMiB !== undefined && gpuStatus.memoryTotalMiB !== undefined
+      ? `${Math.round(gpuStatus.memoryUsedMiB)} / ${Math.round(gpuStatus.memoryTotalMiB)} MiB`
+      : ""
+  ].filter(Boolean);
+
+  return `GPU: ${gpuStatus.backend.toUpperCase()} - ${device}${metrics.length > 0 ? ` - ${metrics.join(" - ")}` : ""}`;
 }
 
 function loadHistoryItems(): HistoryItem[] {

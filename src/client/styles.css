@@ -134,6 +134,35 @@ textarea {
   gap: 12px;
 }
 
+.speed-settings {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d8ded3;
+  border-radius: 8px;
+  background: #f8faf6;
+}
+
+.speed-settings h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.speed-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.speed-toggle {
+  align-self: end;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid #bcc8b6;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
 .segmented {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -280,6 +309,10 @@ textarea {
   color: #607064;
   font-size: 14px;
   white-space: nowrap;
+}
+
+.gpu-status {
+  margin: 0;
 }
 
 progress {
@@ -613,6 +646,10 @@ mark.danger {
   }
 
   .sentence-row {
+    grid-template-columns: 1fr;
+  }
+
+  .speed-grid {
     grid-template-columns: 1fr;
   }
 

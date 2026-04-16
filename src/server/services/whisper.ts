@@ -1,12 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { LanguageHint, LocalModel, WhisperSegment } from "../../shared/types.js";
+import type { LanguageHint, LocalModel, LocalSpeedSettings, WhisperSegment } from "../../shared/types.js";
 import { runCommand } from "./process.js";
 
 export interface WhisperConfig {
   whisperBin: string;
   modelPath: string;
   modelName: LocalModel;
+  speed: LocalSpeedSettings;
 }
 
 export interface WhisperInput {
@@ -24,6 +25,12 @@ export function buildWhisperArgs(input: WhisperInput): string[] {
     input.config.modelPath,
     "-f",
     input.audioPath,
+    "-t",
+    String(input.config.speed.threads),
+    "-bs",
+    String(input.config.speed.beamSize),
+    "-bo",
+    String(input.config.speed.bestOf),
     "-oj",
     "-osrt",
     "-otxt",
@@ -41,6 +48,10 @@ export function buildWhisperArgs(input: WhisperInput): string[] {
   const prompt = buildPrompt(input.languageHint, input.glossary);
   if (prompt) {
     args.push("--prompt", prompt);
+  }
+
+  if (input.config.speed.vadEnabled) {
+    args.push("--vad");
   }
 
   return args;

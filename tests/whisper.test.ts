@@ -11,7 +11,13 @@ describe("whisper.cpp integration helpers", () => {
       config: {
         whisperBin: "whisper-cli",
         modelPath: "model.bin",
-        modelName: "large-v3-turbo-q8_0"
+        modelName: "large-v3-turbo-q8_0",
+        speed: {
+          beamSize: 5,
+          bestOf: 5,
+          threads: 4,
+          vadEnabled: false
+        }
       }
     });
 
@@ -30,7 +36,13 @@ describe("whisper.cpp integration helpers", () => {
       config: {
         whisperBin: "whisper-cli",
         modelPath: "model.bin",
-        modelName: "large-v3-turbo-q8_0"
+        modelName: "large-v3-turbo-q8_0",
+        speed: {
+          beamSize: 5,
+          bestOf: 5,
+          threads: 4,
+          vadEnabled: false
+        }
       }
     });
 
@@ -47,7 +59,13 @@ describe("whisper.cpp integration helpers", () => {
       config: {
         whisperBin: "whisper-cli",
         modelPath: "model.bin",
-        modelName: "large-v3-turbo-q8_0"
+        modelName: "large-v3-turbo-q8_0",
+        speed: {
+          beamSize: 5,
+          bestOf: 5,
+          threads: 4,
+          vadEnabled: false
+        }
       }
     });
 
@@ -74,5 +92,32 @@ describe("whisper.cpp integration helpers", () => {
       text: "Hello world.",
       confidence: undefined
     });
+  });
+
+  it("passes explicit speed flags for local transcription", () => {
+    const args = buildWhisperArgs({
+      audioPath: "segment.wav",
+      workDir: "tmp",
+      languageHint: "en",
+      config: {
+        whisperBin: "whisper-cli",
+        modelPath: "model.bin",
+        modelName: "large-v3-turbo-q8_0",
+        speed: {
+          beamSize: 2,
+          bestOf: 3,
+          threads: 8,
+          vadEnabled: true
+        }
+      }
+    });
+
+    expect(args).toContain("-t");
+    expect(args).toContain("8");
+    expect(args).toContain("-bs");
+    expect(args).toContain("2");
+    expect(args).toContain("-bo");
+    expect(args).toContain("3");
+    expect(args).toContain("--vad");
   });
 });

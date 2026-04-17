@@ -1356,8 +1356,62 @@ export function App() {
                   <span>{result.provider}</span>
                   <span>{result.model}</span>
                   <span>{reviewCount} need review</span>
+                  {result.partial && result.totalChunks ? <span>live {result.completedChunks ?? 0}/{result.totalChunks}</span> : null}
                 </div>
               )}
+              {isInteractiveMode ? (
+                <section className="interactive-toolbar" aria-label="Interactive transcript controls">
+                  <div className="segmented result-tabs interactive-tabs" role="tablist" aria-label="Result views">
+                    <button
+                      className={resultView === "transcript" ? "active" : ""}
+                      type="button"
+                      onClick={() => setResultView("transcript")}
+                    >
+                      Transcript
+                    </button>
+                    <button
+                      className={resultView === "plain" ? "active" : ""}
+                      type="button"
+                      onClick={() => setResultView("plain")}
+                    >
+                      Paragraph
+                    </button>
+                  </div>
+                  {resultView === "transcript" ? (
+                    <div className="segmented review-filters interactive-filters" role="tablist" aria-label="Review filters">
+                      <button className={reviewFilter === "all" ? "active" : ""} type="button" onClick={() => setReviewFilter("all")}>
+                        All
+                      </button>
+                      <button
+                        className={reviewFilter === "needs-review" ? "active" : ""}
+                        type="button"
+                        onClick={() => setReviewFilter("needs-review")}
+                      >
+                        Review
+                      </button>
+                      <button
+                        className={reviewFilter === "approved" ? "active" : ""}
+                        type="button"
+                        onClick={() => setReviewFilter("approved")}
+                      >
+                        Approved
+                      </button>
+                      <button
+                        className={reviewFilter === "edited" ? "active" : ""}
+                        type="button"
+                        onClick={() => setReviewFilter("edited")}
+                      >
+                        Edited
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="export-actions interactive-export-actions">
+                    <button type="button" onClick={() => exportResult("txt")}>TXT</button>
+                    <button type="button" onClick={() => exportResult("srt")}>SRT</button>
+                    <button type="button" onClick={() => exportResult("json")}>JSON</button>
+                  </div>
+                </section>
+              ) : null}
               {resultView === "transcript" ? (
                 <>
                   {!isInteractiveMode ? (
@@ -1392,21 +1446,24 @@ export function App() {
                     </div>
                   </section>
                   ) : null}
-                  <TranscriptView
-                  sentences={transcriptSentences}
-                  visibleSentenceIndices={visibleSentenceIndices}
-                  activeSentenceIndex={activeSentenceIndex ?? undefined}
-                  onSeek={seekToSentence}
-                  reviewDrafts={reviewDrafts}
-                  editingSentenceIndex={editingSentenceIndex}
-                  onStartEditing={setEditingSentenceIndex}
-                  onStopEditing={() => setEditingSentenceIndex(null)}
-                  onReviewStateChange={setSentenceReviewState}
-                  onDraftTextChange={updateSentenceText}
-                  onResetSentence={resetSentenceText}
-                />
+                  <div className={isInteractiveMode ? "interactive-content-pane" : undefined}>
+                    <TranscriptView
+                      sentences={transcriptSentences}
+                      visibleSentenceIndices={visibleSentenceIndices}
+                      activeSentenceIndex={activeSentenceIndex ?? undefined}
+                      onSeek={seekToSentence}
+                      reviewDrafts={reviewDrafts}
+                      editingSentenceIndex={editingSentenceIndex}
+                      onStartEditing={setEditingSentenceIndex}
+                      onStopEditing={() => setEditingSentenceIndex(null)}
+                      onReviewStateChange={setSentenceReviewState}
+                      onDraftTextChange={updateSentenceText}
+                      onResetSentence={resetSentenceText}
+                    />
+                  </div>
                 </>
               ) : (
+                <div className={isInteractiveMode ? "interactive-content-pane plain-pane" : undefined}>
                 <section className="plain-transcript" aria-label="Editable plain transcript">
                   <div className="plain-transcript-header">
                     <div>
@@ -1430,66 +1487,8 @@ export function App() {
                     spellCheck="false"
                   />
                 </section>
+                </div>
               )}
-              {isInteractiveMode ? (
-                <section className="interactive-footer" aria-label="Interactive transcript controls">
-                  <div className="interactive-footer-summary">
-                    <span>{reviewCount} need review</span>
-                    {result.partial && result.totalChunks ? <span>live {result.completedChunks ?? 0}/{result.totalChunks}</span> : null}
-                  </div>
-                  <div className="interactive-footer-main">
-                    <div className="segmented result-tabs interactive-tabs" role="tablist" aria-label="Result views">
-                      <button
-                        className={resultView === "transcript" ? "active" : ""}
-                        type="button"
-                        onClick={() => setResultView("transcript")}
-                      >
-                        Transcript
-                      </button>
-                      <button
-                        className={resultView === "plain" ? "active" : ""}
-                        type="button"
-                        onClick={() => setResultView("plain")}
-                      >
-                        Paragraph
-                      </button>
-                    </div>
-                    {resultView === "transcript" ? (
-                      <div className="segmented review-filters interactive-filters" role="tablist" aria-label="Review filters">
-                        <button className={reviewFilter === "all" ? "active" : ""} type="button" onClick={() => setReviewFilter("all")}>
-                          All
-                        </button>
-                        <button
-                          className={reviewFilter === "needs-review" ? "active" : ""}
-                          type="button"
-                          onClick={() => setReviewFilter("needs-review")}
-                        >
-                          Review
-                        </button>
-                        <button
-                          className={reviewFilter === "approved" ? "active" : ""}
-                          type="button"
-                          onClick={() => setReviewFilter("approved")}
-                        >
-                          Approved
-                        </button>
-                        <button
-                          className={reviewFilter === "edited" ? "active" : ""}
-                          type="button"
-                          onClick={() => setReviewFilter("edited")}
-                        >
-                          Edited
-                        </button>
-                      </div>
-                    ) : null}
-                    <div className="export-actions interactive-export-actions">
-                      <button type="button" onClick={() => exportResult("txt")}>TXT</button>
-                      <button type="button" onClick={() => exportResult("srt")}>SRT</button>
-                      <button type="button" onClick={() => exportResult("json")}>JSON</button>
-                    </div>
-                  </div>
-                </section>
-              ) : null}
             </>
           ) : (
             <EmptyState />

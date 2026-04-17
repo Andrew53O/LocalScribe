@@ -35,15 +35,15 @@ button:disabled {
 
 .app-shell {
   min-height: 100vh;
-  padding: 24px;
+  padding: 24px 24px 24px 0;
 }
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-  gap: 24px;
-  max-width: 1440px;
-  margin: 0 auto;
+  grid-template-columns: minmax(312px, 388px) minmax(0, 1fr);
+  gap: 20px;
+  max-width: none;
+  margin: 0;
 }
 
 .control-panel,
@@ -59,7 +59,8 @@ button:disabled {
   padding: 24px;
   background: #ffffff;
   border: 1px solid #d8ded3;
-  border-radius: 8px;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
 }
 
 .workspace.interactive-sidebar-collapsed {
@@ -900,6 +901,11 @@ mark.danger {
     min-height: auto;
   }
 
+  .control-panel {
+    border-left: 1px solid #d8ded3;
+    border-radius: 8px;
+  }
+
   .sentence-row {
     grid-template-columns: 1fr;
   }
@@ -953,7 +959,8 @@ mark.danger {
 
   .result-panel.focus-layout .player-frame-wrap {
     aspect-ratio: auto;
-    height: clamp(240px, 38vh, 420px);
+    height: clamp(360px, 74vh, 820px);
+    max-height: calc(100vh - 260px);
   }
 
   .result-panel.focus-layout .interactive-summary-bar,

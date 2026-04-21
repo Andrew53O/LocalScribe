@@ -14,6 +14,12 @@ export interface ExtractAudioInput {
   endSeconds: number;
   workDir: string;
   tools: AudioTools;
+  onProgress?: (progress: AudioExtractionProgress) => void;
+}
+
+export interface AudioExtractionProgress {
+  phase: "download" | "convert";
+  percent: number;
 }
 
 export interface VideoMetadata {
@@ -38,6 +44,7 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
     input.tools.ytDlpBin,
     [
       "--no-playlist",
+      "--newline",
       "--download-sections",
       section,
       "-f",
@@ -46,7 +53,11 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
       rawTemplate,
       input.youtubeUrl
     ],
-    { timeoutMs: 1000 * 60 * 30 }
+    {
+      timeoutMs: 1000 * 60 * 30,
+      onStdout: (chunk) => reportYtDlpProgress(chunk, input.onProgress),
+      onStderr: (chunk) => reportYtDlpProgress(chunk, input.onProgress)
+    }
   );
 
   const files = await readdir(input.workDir);
@@ -73,10 +84,66 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
       "16000",
       normalizedPath
     ],
-    { timeoutMs: 1000 * 60 * 20 }
+    {
+      timeoutMs: 1000 * 60 * 20,
+      onStderr: (chunk) =>
+        reportFfmpegProgress(chunk, input.endSeconds - input.startSeconds, input.onProgress)
+    }
   );
 
   return normalizedPath;
+}
+
+function reportYtDlpProgress(
+  chunk: string,
+  onProgress: ExtractAudioInput["onProgress"]
+) {
+  if (!onProgress) {
+    return;
+  }
+
+  const clean = stripAnsi(chunk);
+  const matches = clean.matchAll(/\[download\]\s+(\d+(?:\.\d+)?)%/gi);
+
+  for (const match of matches) {
+    onProgress({
+      phase: "download",
+      percent: clampPercent(Number.parseFloat(match[1]))
+    });
+  }
+}
+
+function reportFfmpegProgress(
+  chunk: string,
+  durationSeconds: number,
+  onProgress: ExtractAudioInput["onProgress"]
+) {
+  if (!onProgress || durationSeconds <= 0) {
+    return;
+  }
+
+  const clean = stripAnsi(chunk);
+  const matches = clean.matchAll(/time=(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/gi);
+
+  for (const match of matches) {
+    const processedSeconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number.parseFloat(match[3]);
+    onProgress({
+      phase: "convert",
+      percent: clampPercent((processedSeconds / durationSeconds) * 100)
+    });
+  }
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, value));
 }
 
 export async function getYoutubeVideoMetadata(youtubeUrl: string, ytDlpBin: string): Promise<VideoMetadata> {

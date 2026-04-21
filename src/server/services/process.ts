@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 export interface RunCommandOptions {
   cwd?: string;
   timeoutMs?: number;
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
 }
 
 export interface RunCommandResult {
@@ -27,11 +29,15 @@ export function runCommand(command: string, args: string[], options: RunCommandO
       : undefined;
 
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      options.onStdout?.(text);
     });
 
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      options.onStderr?.(text);
     });
 
     child.on("error", (error) => {

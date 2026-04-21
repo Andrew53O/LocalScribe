@@ -12,6 +12,18 @@ import { transcribeWithOpenAI } from "./openaiTranscription.js";
 import { transcribeWithWhisper } from "./whisper.js";
 
 const jobs = new Map<string, JobRecord>();
+const jobLogState = new Map<string, { progress: number; stage: string }>();
+
+const PROGRESS = {
+  validating: 5,
+  extractionStart: 10,
+  downloadEnd: 35,
+  conversionEnd: 45,
+  transcriptionStart: 45,
+  transcriptionEnd: 90,
+  review: 95,
+  completed: 100
+} as const;
 
 export function createJob(request: TranscriptionRequest): JobRecord {
   const now = new Date().toISOString();
@@ -38,10 +50,10 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
   const workDir = await mkdtemp(path.join(os.tmpdir(), "yt-transcribe-"));
 
   try {
-    updateJob(jobId, { status: "running", progress: 5, message: "Validating time range" });
+    updateJob(jobId, { status: "running", progress: PROGRESS.validating, message: "Validating time range" });
     const range = validateRange(request.startTime, request.endTime);
 
-    updateJob(jobId, { progress: 15, message: "Extracting selected YouTube audio" });
+    updateJob(jobId, { progress: PROGRESS.extractionStart, message: "Preparing audio extraction" });
     const audioPath = await extractSegmentAudio({
       youtubeUrl: request.youtubeUrl,
       startSeconds: range.startSeconds,
@@ -50,6 +62,20 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
       tools: {
         ytDlpBin: process.env.YTDLP_BIN || "yt-dlp",
         ffmpegBin: process.env.FFMPEG_BIN || "ffmpeg"
+      },
+      onProgress: (progress) => {
+        if (progress.phase === "download") {
+          updateJob(jobId, {
+            progress: mapProgress(progress.percent, PROGRESS.extractionStart, PROGRESS.downloadEnd),
+            message: `Downloading selected audio ${formatPercent(progress.percent)}`
+          });
+          return;
+        }
+
+        updateJob(jobId, {
+          progress: mapProgress(progress.percent, PROGRESS.downloadEnd, PROGRESS.conversionEnd),
+          message: `Converting audio ${formatPercent(progress.percent)}`
+        });
       }
     });
 
@@ -59,7 +85,7 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
 
     for (const chunk of chunkPlan) {
       updateJob(jobId, {
-        progress: 20 + Math.round((chunk.index / totalChunks) * 60),
+        progress: mapProgress((chunk.index / totalChunks) * 100, PROGRESS.transcriptionStart, PROGRESS.transcriptionEnd),
         message: `Transcribing chunk ${chunk.index + 1} of ${totalChunks}`
       });
 
@@ -103,17 +129,18 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
       const partialResult = buildResult(request, range.durationSeconds, aggregatedSegments, totalChunks, chunk.index + 1, true);
 
       updateJob(jobId, {
-        progress: 20 + Math.round(((chunk.index + 1) / totalChunks) * 60),
+        progress: mapProgress(((chunk.index + 1) / totalChunks) * 100, PROGRESS.transcriptionStart, PROGRESS.transcriptionEnd),
         message: chunk.index + 1 === totalChunks ? "Preparing transcript review" : `Processed chunk ${chunk.index + 1} of ${totalChunks}`,
         result: partialResult
       });
     }
 
+    updateJob(jobId, { progress: PROGRESS.review, message: "Finalizing transcript review" });
     const result = buildResult(request, range.durationSeconds, aggregatedSegments, totalChunks, totalChunks, false);
 
     updateJob(jobId, {
       status: "completed",
-      progress: 100,
+      progress: PROGRESS.completed,
       message: "Completed",
       result
     });
@@ -128,6 +155,7 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
     setTimeout(() => {
       void rm(workDir, { recursive: true, force: true });
     }, 1000 * 60 * 5);
+    jobLogState.delete(jobId);
   }
 }
 
@@ -137,11 +165,48 @@ function updateJob(jobId: string, patch: Partial<JobRecord>) {
     return;
   }
 
-  jobs.set(jobId, {
+  const next = {
     ...current,
     ...patch,
     updatedAt: new Date().toISOString()
+  };
+
+  jobs.set(jobId, next);
+  logJobProgress(next);
+}
+
+function mapProgress(percent: number, start: number, end: number): number {
+  const safe = Math.max(0, Math.min(100, percent));
+  return Number((start + (safe / 100) * (end - start)).toFixed(1));
+}
+
+function formatPercent(percent: number): string {
+  return `${Math.max(0, Math.min(100, percent)).toFixed(1)}%`;
+}
+
+function logJobProgress(job: JobRecord) {
+  const previous = jobLogState.get(job.id);
+  const progressChanged = !previous || Math.abs(job.progress - previous.progress) >= 1;
+  const stage = normalizeProgressStage(job.message);
+  const stageChanged = previous?.stage !== stage;
+  const terminalStateChanged = job.status === "completed" || job.status === "failed";
+
+  if (!progressChanged && !stageChanged && !terminalStateChanged) {
+    return;
+  }
+
+  jobLogState.set(job.id, {
+    progress: job.progress,
+    stage
   });
+
+  const shortId = job.id.slice(0, 8);
+  const progress = job.progress.toFixed(1).padStart(5, " ");
+  console.log(`[job ${shortId}] ${progress}% ${job.message}`);
+}
+
+function normalizeProgressStage(message: string): string {
+  return message.replace(/\s+\d{1,3}(?:\.\d+)?%$/, "");
 }
 
 function requiredEnv(name: string): string {

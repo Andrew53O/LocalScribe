@@ -101,6 +101,7 @@ const defaultLocalSettings: LocalSettings = {
 
 export function App() {
   const resultPanelRef = useRef<HTMLElement | null>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
   const playerIframeRef = useRef<HTMLIFrameElement | null>(null);
   const youtubePlayerRef = useRef<YoutubePlayer | null>(null);
   const activeSentenceIndexRef = useRef<number | null>(null);
@@ -140,7 +141,7 @@ export function App() {
   const [isControlPanelCollapsed, setIsControlPanelCollapsed] = useState(false);
   const [debugEnabled, setDebugEnabled] = useState(() => localStorage.getItem("yt-transcriber-debug") === "true");
   const [debugEntries, setDebugEntries] = useState<DebugEntry[]>([]);
-  const [playerApiStatus, setPlayerApiStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [playerApiStatus, setPlayerApiStatus] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
   const [playerApiError, setPlayerApiError] = useState("");
   const [iframePlaybackRequest, setIframePlaybackRequest] = useState({ startSeconds: 0, nonce: 0 });
 
@@ -485,7 +486,7 @@ export function App() {
 
               window.clearTimeout(readyTimerId);
               playerReady = false;
-              setPlayerApiStatus("error");
+              setPlayerApiStatus("fallback");
               setPlayerApiError("YouTube player API failed to initialize. The fallback embed is still available.");
             }
           }
@@ -496,13 +497,13 @@ export function App() {
             return;
           }
 
-          setPlayerApiStatus("error");
+          setPlayerApiStatus("fallback");
           setPlayerApiError("YouTube player API timed out. The fallback embed is still available.");
         }, 5000);
       })
       .catch(() => {
         if (!cancelled) {
-          setPlayerApiStatus("error");
+          setPlayerApiStatus("fallback");
           setPlayerApiError("Unable to load the YouTube player API. The fallback embed is still available.");
         }
       });
@@ -516,7 +517,7 @@ export function App() {
   }, [playerState?.videoId]);
 
   useEffect(() => {
-    if (!youtubePlayerRef.current || !result?.sentences.length) {
+    if (playerApiStatus !== "ready" || !youtubePlayerRef.current || !result?.sentences.length) {
       return;
     }
 
@@ -527,7 +528,13 @@ export function App() {
         return;
       }
 
-      const currentTime = player.getCurrentTime();
+      let currentTime = 0;
+      try {
+        currentTime = player.getCurrentTime();
+      } catch {
+        return;
+      }
+
       if (!Number.isFinite(currentTime)) {
         return;
       }
@@ -543,10 +550,10 @@ export function App() {
       if (isInteractiveMode) {
         scrollSentenceIntoView(nextIndex);
       }
-    }, 700);
+    }, 300);
 
     return () => window.clearInterval(intervalId);
-  }, [result, isInteractiveMode, playerState?.videoId]);
+  }, [result, isInteractiveMode, playerState?.videoId, playerApiStatus]);
 
   async function submit() {
     setError("");
@@ -705,7 +712,7 @@ export function App() {
       return;
     }
 
-    if (!youtubePlayerRef.current) {
+    if (playerApiStatus !== "ready" || !youtubePlayerRef.current) {
       setIframePlaybackRequest((current) => ({
         startSeconds: Math.max(0, Math.floor(seconds)),
         nonce: current.nonce + 1
@@ -713,13 +720,37 @@ export function App() {
       return;
     }
 
-    youtubePlayerRef.current.seekTo(Math.max(0, Math.floor(seconds)), true);
-    youtubePlayerRef.current.playVideo();
+    try {
+      youtubePlayerRef.current.seekTo(Math.max(0, Math.floor(seconds)), true);
+      youtubePlayerRef.current.playVideo();
+    } catch {
+      setIframePlaybackRequest((current) => ({
+        startSeconds: Math.max(0, Math.floor(seconds)),
+        nonce: current.nonce + 1
+      }));
+    }
   }
 
   function scrollSentenceIntoView(index: number) {
-    const row = resultPanelRef.current?.querySelector<HTMLElement>(`[data-sentence-index="${index}"]`);
-    row?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const container = transcriptScrollRef.current;
+    const row = (container ?? resultPanelRef.current)?.querySelector<HTMLElement>(`[data-sentence-index="${index}"]`);
+
+    if (!row) {
+      return;
+    }
+
+    if (!container) {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const targetTop = container.scrollTop + rowRect.top - containerRect.top - container.clientHeight * 0.38 + rowRect.height / 2;
+    container.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: "smooth"
+    });
   }
 
   function jumpToActiveSentence() {
@@ -1311,7 +1342,7 @@ export function App() {
                       referrerPolicy="strict-origin-when-cross-origin"
                     />
                   </div>
-                  {playerApiStatus === "error" ? <p className="warning player-warning">{playerApiError}</p> : null}
+                  {playerApiStatus === "fallback" ? <p className="subtle player-warning">{playerApiError}</p> : null}
                 </section>
               ) : null}
               {!isInteractiveMode ? (
@@ -1446,7 +1477,7 @@ export function App() {
                     </div>
                   </section>
                   ) : null}
-                  <div className={isInteractiveMode ? "interactive-content-pane" : undefined}>
+                  <div className={isInteractiveMode ? "interactive-content-pane" : undefined} ref={isInteractiveMode ? transcriptScrollRef : undefined}>
                     <TranscriptView
                       sentences={transcriptSentences}
                       visibleSentenceIndices={visibleSentenceIndices}

@@ -934,51 +934,98 @@ mark.danger {
   .interactive-toolbar {
     grid-template-columns: 1fr;
   }
+
+  .result-panel.focus-layout {
+    display: grid;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .result-panel.focus-layout .interactive-content-pane {
+    max-height: 48vh;
+    overflow: auto;
+  }
 }
 
 @media (min-width: 901px) {
   .result-panel.focus-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto auto minmax(0, 1fr);
+    grid-template-columns: minmax(640px, 68fr) minmax(320px, 32fr);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
     height: calc(100vh - 48px);
     max-height: calc(100vh - 48px);
     align-items: start;
     row-gap: 12px;
+    column-gap: 18px;
     overflow: hidden;
   }
 
   .result-panel.focus-layout .status-bar {
-    grid-column: 1;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    margin-bottom: 0;
   }
 
   .result-panel.focus-layout .player-panel {
     position: static;
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 2 / 5;
+    align-self: start;
     margin-bottom: 0;
+    padding: 12px;
+    gap: 10px;
     z-index: 2;
   }
 
-  .result-panel.focus-layout .player-frame-wrap {
-    aspect-ratio: auto;
-    height: clamp(360px, 74vh, 820px);
-    max-height: calc(100vh - 260px);
+  .result-panel.focus-layout .player-header {
+    align-items: center;
   }
 
-  .result-panel.focus-layout .interactive-summary-bar,
-  .result-panel.focus-layout .interactive-toolbar,
-  .result-panel.focus-layout .interactive-content-pane,
-  .result-panel.focus-layout .sentence-list,
-  .result-panel.focus-layout .plain-transcript,
-  .result-panel.focus-layout .interactive-footer {
-    grid-column: 1;
+  .result-panel.focus-layout .player-header h3 {
+    font-size: 17px;
+  }
+
+  .result-panel.focus-layout .player-header .eyebrow {
+    margin-bottom: 2px;
+  }
+
+  .result-panel.focus-layout .player-header button {
+    padding: 7px 10px;
+  }
+
+  .result-panel.focus-layout .player-frame-wrap {
+    aspect-ratio: 16 / 9;
+    height: auto;
+    width: min(100%, calc((100vh - 170px) * 16 / 9));
+    max-width: 100%;
+  }
+
+  .result-panel.focus-layout .interactive-summary-bar {
+    grid-column: 2;
+    grid-row: 2;
+    margin-bottom: 0;
+  }
+
+  .result-panel.focus-layout .interactive-toolbar {
+    grid-column: 2;
+    grid-row: 3;
+    grid-template-columns: 1fr;
+    align-self: start;
+    margin-bottom: 0;
+    padding: 10px;
   }
 
   .result-panel.focus-layout .interactive-content-pane {
+    grid-column: 2;
+    grid-row: 4;
     min-height: 0;
+    height: 100%;
     overflow: auto;
     padding-right: 6px;
+  }
+
+  .result-panel.focus-layout .sentence-list {
+    grid-column: 1;
   }
 
   .result-panel.focus-layout .interactive-content-pane.plain-pane,

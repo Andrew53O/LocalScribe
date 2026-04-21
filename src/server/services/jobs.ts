@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { constants as fsConstants } from "node:fs";
 import type { JobRecord, TranscriptionRequest, TranscriptionResult, WhisperSegment } from "../../shared/types.js";
 import { applyHeuristicSpeakerDiarization } from "../lib/diarization.js";
 import { applyQualityHighlights } from "../lib/quality.js";
@@ -52,6 +53,7 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
   try {
     updateJob(jobId, { status: "running", progress: PROGRESS.validating, message: "Validating time range" });
     const range = validateRange(request.startTime, request.endTime);
+    const localModelPath = request.provider === "local" ? await resolveSelectedModelPath(request.localModel) : "";
 
     updateJob(jobId, {
       progress: PROGRESS.extractionStart,
@@ -67,6 +69,14 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
         ffmpegBin: process.env.FFMPEG_BIN || "ffmpeg"
       },
       onProgress: (progress) => {
+        if (progress.phase === "prepare") {
+          updateJob(jobId, {
+            progress: PROGRESS.extractionStart,
+            message: formatPreparationProgressMessage(progress)
+          });
+          return;
+        }
+
         if (progress.phase === "download") {
           updateJob(jobId, {
             progress: mapProgress(progress.percent, PROGRESS.extractionStart, PROGRESS.downloadEnd),
@@ -115,7 +125,7 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
               glossary: request.glossary,
               config: {
                 whisperBin: requiredEnv("WHISPER_CPP_BIN"),
-                modelPath: requiredEnv("WHISPER_MODEL_PATH"),
+                modelPath: localModelPath,
                 modelName: request.localModel,
                 speed: request.localSpeed
               }
@@ -199,6 +209,14 @@ function formatTimedProgressMessage(
   return `${label} ${formatTimestamp(progress.processedSeconds)} / ${formatTimestamp(progress.totalSeconds)} (${formatTimestamp(progress.remainingSeconds)} remaining, ${formatPercent(progress.percent)})`;
 }
 
+function formatPreparationProgressMessage(progress: {
+  totalSeconds: number;
+  detail?: string;
+}): string {
+  const detail = progress.detail ? ` - ${progress.detail}` : "";
+  return `Preparing audio extraction for ${formatTimestamp(progress.totalSeconds)} selected range${detail}`;
+}
+
 function logJobProgress(job: JobRecord) {
   const previous = jobLogState.get(job.id);
   const progressChanged = !previous || Math.abs(job.progress - previous.progress) >= 1;
@@ -225,6 +243,10 @@ function normalizeProgressStage(message: string): string {
     return "Extracting selected audio";
   }
 
+  if (message.startsWith("Preparing audio extraction")) {
+    return message;
+  }
+
   if (message.startsWith("Converting audio")) {
     return "Converting audio";
   }
@@ -238,6 +260,56 @@ function requiredEnv(name: string): string {
     throw new Error(`${name} is required for local transcription mode.`);
   }
   return value;
+}
+
+async function resolveSelectedModelPath(modelName: TranscriptionRequest["localModel"]): Promise<string> {
+  const modelPath = process.env[modelEnvName(modelName)] || process.env.WHISPER_MODEL_PATH;
+
+  if (!modelPath) {
+    throw new Error(
+      `Selected local model ${modelName}, but no model path is configured. Set ${modelEnvName(modelName)} in .env.`
+    );
+  }
+
+  if (!modelPathMatchesSelection(modelPath, modelName)) {
+    throw new Error(
+      `Selected local model ${modelName}, but configured model path looks different: ${modelPath}. Set ${modelEnvName(modelName)} to the matching model file.`
+    );
+  }
+
+  try {
+    await access(modelPath, fsConstants.R_OK);
+  } catch {
+    throw new Error(`Selected local model ${modelName}, but the model file cannot be read: ${modelPath}`);
+  }
+
+  return modelPath;
+}
+
+function modelEnvName(modelName: TranscriptionRequest["localModel"]): string {
+  if (modelName === "large-v3") {
+    return "WHISPER_MODEL_PATH_LARGE_V3";
+  }
+
+  if (modelName === "large-v3-turbo-q5_0") {
+    return "WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q5_0";
+  }
+
+  return "WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0";
+}
+
+function modelPathMatchesSelection(modelPath: string, modelName: TranscriptionRequest["localModel"]): boolean {
+  const filename = path.basename(modelPath).toLowerCase();
+
+  if (modelName === "large-v3") {
+    return filename.includes("large-v3") && !filename.includes("turbo");
+  }
+
+  if (modelName === "large-v3-turbo-q5_0") {
+    return filename.includes("large-v3-turbo") && filename.includes("q5_0");
+  }
+
+  return filename.includes("large-v3-turbo") && filename.includes("q8_0");
 }
 
 function buildResult(

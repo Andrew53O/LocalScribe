@@ -18,11 +18,12 @@ export interface ExtractAudioInput {
 }
 
 export interface AudioExtractionProgress {
-  phase: "download" | "convert";
+  phase: "prepare" | "download" | "convert";
   percent: number;
   processedSeconds: number;
   totalSeconds: number;
   remainingSeconds: number;
+  detail?: string;
 }
 
 export interface VideoMetadata {
@@ -42,6 +43,9 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
   await mkdir(input.workDir, { recursive: true });
   const rawTemplate = path.join(input.workDir, "source.%(ext)s");
   const section = `*${formatTimestamp(input.startSeconds)}-${formatTimestamp(input.endSeconds)}`;
+  const durationSeconds = input.endSeconds - input.startSeconds;
+
+  input.onProgress?.(buildExtractionProgress("prepare", 0, durationSeconds, "Starting yt-dlp"));
 
   await runCommand(
     input.tools.ytDlpBin,
@@ -59,12 +63,12 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
     {
       timeoutMs: 1000 * 60 * 30,
       onStdout: (chunk) =>
-        reportYtDlpProgress(chunk, input.endSeconds - input.startSeconds, input.onProgress),
+        reportYtDlpProgress(chunk, durationSeconds, input.onProgress),
       onStderr: (chunk) =>
-        reportYtDlpProgress(chunk, input.endSeconds - input.startSeconds, input.onProgress)
+        reportYtDlpProgress(chunk, durationSeconds, input.onProgress)
     }
   );
-  input.onProgress?.(buildExtractionProgress("download", 100, input.endSeconds - input.startSeconds));
+  input.onProgress?.(buildExtractionProgress("download", 100, durationSeconds));
 
   const files = await readdir(input.workDir);
   const sourceFile = files.find((file) => file.startsWith("source.") && !file.endsWith(".part"));
@@ -93,10 +97,10 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
     {
       timeoutMs: 1000 * 60 * 20,
       onStderr: (chunk) =>
-        reportFfmpegProgress(chunk, input.endSeconds - input.startSeconds, input.onProgress)
+        reportFfmpegProgress(chunk, durationSeconds, input.onProgress)
     }
   );
-  input.onProgress?.(buildExtractionProgress("convert", 100, input.endSeconds - input.startSeconds));
+  input.onProgress?.(buildExtractionProgress("convert", 100, durationSeconds));
 
   return normalizedPath;
 }
@@ -112,9 +116,20 @@ function reportYtDlpProgress(
 
   const clean = stripAnsi(chunk);
   const matches = clean.matchAll(/\[download\]\s+(\d+(?:\.\d+)?)%/gi);
+  let foundDownloadProgress = false;
 
   for (const match of matches) {
+    foundDownloadProgress = true;
     onProgress(buildExtractionProgress("download", Number.parseFloat(match[1]), durationSeconds));
+  }
+
+  if (!foundDownloadProgress) {
+    for (const line of clean.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+      const detail = parseYtDlpPreparationLine(line);
+      if (detail) {
+        onProgress(buildExtractionProgress("prepare", 0, durationSeconds, detail));
+      }
+    }
   }
 }
 
@@ -139,7 +154,8 @@ function reportFfmpegProgress(
 function buildExtractionProgress(
   phase: AudioExtractionProgress["phase"],
   percent: number,
-  durationSeconds: number
+  durationSeconds: number,
+  detail?: string
 ): AudioExtractionProgress {
   const safeDuration = Math.max(0, durationSeconds);
   const safePercent = clampPercent(percent);
@@ -150,8 +166,45 @@ function buildExtractionProgress(
     percent: safePercent,
     processedSeconds,
     totalSeconds: safeDuration,
-    remainingSeconds: Math.max(0, safeDuration - processedSeconds)
+    remainingSeconds: Math.max(0, safeDuration - processedSeconds),
+    detail
   };
+}
+
+function parseYtDlpPreparationLine(line: string): string | undefined {
+  if (line.startsWith("[youtube] Extracting URL")) {
+    return "Reading YouTube URL";
+  }
+
+  if (line.includes("Downloading webpage")) {
+    return "Downloading video page";
+  }
+
+  if (line.includes("Downloading ios player API JSON")) {
+    return "Checking iOS player metadata";
+  }
+
+  if (line.includes("Downloading android player API JSON")) {
+    return "Checking Android player metadata";
+  }
+
+  if (line.includes("Downloading m3u8 information")) {
+    return "Reading audio stream playlist";
+  }
+
+  if (line.includes("Downloading player")) {
+    return "Downloading YouTube player metadata";
+  }
+
+  if (line.startsWith("[info]")) {
+    return "Selecting best audio stream";
+  }
+
+  if (line.startsWith("[download] Destination:")) {
+    return "Opening local audio output file";
+  }
+
+  return undefined;
 }
 
 function stripAnsi(value: string): string {

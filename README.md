@@ -198,9 +198,14 @@ Avoid `.en` models for this project because they are English-only.
    ```env
    WHISPER_CPP_BIN=E:\allProject\13. Youtube Transcribe\tools\whisper.cpp\Release\whisper-cli.exe
    WHISPER_MODEL_PATH=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
+   WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
+   WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q5_0=
+   WHISPER_MODEL_PATH_LARGE_V3=
    PORT=8787
    OPENAI_API_KEY=
    ```
+
+   `WHISPER_MODEL_PATH` is kept as the default fallback. If you select `large-v3` or `large-v3-turbo-q5_0` in the UI, set the matching model-specific path too. The backend checks the selected model before extraction starts, so choosing `large-v3` without downloading `ggml-large-v3.bin` fails early with a clear error.
 
 6. Start the app:
 
@@ -230,6 +235,7 @@ Example Windows setup:
    ```env
    WHISPER_CPP_BIN=E:\allProject\13. Youtube Transcribe\tools\whisper.cpp-cuda\Release\whisper-cli.exe
    WHISPER_MODEL_PATH=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
+   WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
    ```
 
 The model file is the same. Only the executable changes.

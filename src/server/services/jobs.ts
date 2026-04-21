@@ -5,7 +5,7 @@ import type { JobRecord, TranscriptionRequest, TranscriptionResult, WhisperSegme
 import { applyHeuristicSpeakerDiarization } from "../lib/diarization.js";
 import { applyQualityHighlights } from "../lib/quality.js";
 import { segmentsToSentences } from "../lib/sentence.js";
-import { validateRange } from "../lib/time.js";
+import { formatTimestamp, validateRange } from "../lib/time.js";
 import { convertBasicSimplifiedToTraditional } from "../lib/traditional.js";
 import { buildChunkPlan, createAudioChunk, extractSegmentAudio } from "./audio.js";
 import { transcribeWithOpenAI } from "./openaiTranscription.js";
@@ -53,7 +53,10 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
     updateJob(jobId, { status: "running", progress: PROGRESS.validating, message: "Validating time range" });
     const range = validateRange(request.startTime, request.endTime);
 
-    updateJob(jobId, { progress: PROGRESS.extractionStart, message: "Preparing audio extraction" });
+    updateJob(jobId, {
+      progress: PROGRESS.extractionStart,
+      message: `Preparing audio extraction for ${formatTimestamp(range.durationSeconds)} selected range`
+    });
     const audioPath = await extractSegmentAudio({
       youtubeUrl: request.youtubeUrl,
       startSeconds: range.startSeconds,
@@ -67,14 +70,14 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
         if (progress.phase === "download") {
           updateJob(jobId, {
             progress: mapProgress(progress.percent, PROGRESS.extractionStart, PROGRESS.downloadEnd),
-            message: `Downloading selected audio ${formatPercent(progress.percent)}`
+            message: formatTimedProgressMessage("Extracting selected audio", progress)
           });
           return;
         }
 
         updateJob(jobId, {
           progress: mapProgress(progress.percent, PROGRESS.downloadEnd, PROGRESS.conversionEnd),
-          message: `Converting audio ${formatPercent(progress.percent)}`
+          message: formatTimedProgressMessage("Converting audio", progress)
         });
       }
     });
@@ -184,6 +187,18 @@ function formatPercent(percent: number): string {
   return `${Math.max(0, Math.min(100, percent)).toFixed(1)}%`;
 }
 
+function formatTimedProgressMessage(
+  label: string,
+  progress: {
+    percent: number;
+    processedSeconds: number;
+    totalSeconds: number;
+    remainingSeconds: number;
+  }
+): string {
+  return `${label} ${formatTimestamp(progress.processedSeconds)} / ${formatTimestamp(progress.totalSeconds)} (${formatTimestamp(progress.remainingSeconds)} remaining, ${formatPercent(progress.percent)})`;
+}
+
 function logJobProgress(job: JobRecord) {
   const previous = jobLogState.get(job.id);
   const progressChanged = !previous || Math.abs(job.progress - previous.progress) >= 1;
@@ -206,6 +221,14 @@ function logJobProgress(job: JobRecord) {
 }
 
 function normalizeProgressStage(message: string): string {
+  if (message.startsWith("Extracting selected audio")) {
+    return "Extracting selected audio";
+  }
+
+  if (message.startsWith("Converting audio")) {
+    return "Converting audio";
+  }
+
   return message.replace(/\s+\d{1,3}(?:\.\d+)?%$/, "");
 }
 

@@ -20,6 +20,9 @@ export interface ExtractAudioInput {
 export interface AudioExtractionProgress {
   phase: "download" | "convert";
   percent: number;
+  processedSeconds: number;
+  totalSeconds: number;
+  remainingSeconds: number;
 }
 
 export interface VideoMetadata {
@@ -55,10 +58,13 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
     ],
     {
       timeoutMs: 1000 * 60 * 30,
-      onStdout: (chunk) => reportYtDlpProgress(chunk, input.onProgress),
-      onStderr: (chunk) => reportYtDlpProgress(chunk, input.onProgress)
+      onStdout: (chunk) =>
+        reportYtDlpProgress(chunk, input.endSeconds - input.startSeconds, input.onProgress),
+      onStderr: (chunk) =>
+        reportYtDlpProgress(chunk, input.endSeconds - input.startSeconds, input.onProgress)
     }
   );
+  input.onProgress?.(buildExtractionProgress("download", 100, input.endSeconds - input.startSeconds));
 
   const files = await readdir(input.workDir);
   const sourceFile = files.find((file) => file.startsWith("source.") && !file.endsWith(".part"));
@@ -90,12 +96,14 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
         reportFfmpegProgress(chunk, input.endSeconds - input.startSeconds, input.onProgress)
     }
   );
+  input.onProgress?.(buildExtractionProgress("convert", 100, input.endSeconds - input.startSeconds));
 
   return normalizedPath;
 }
 
 function reportYtDlpProgress(
   chunk: string,
+  durationSeconds: number,
   onProgress: ExtractAudioInput["onProgress"]
 ) {
   if (!onProgress) {
@@ -106,10 +114,7 @@ function reportYtDlpProgress(
   const matches = clean.matchAll(/\[download\]\s+(\d+(?:\.\d+)?)%/gi);
 
   for (const match of matches) {
-    onProgress({
-      phase: "download",
-      percent: clampPercent(Number.parseFloat(match[1]))
-    });
+    onProgress(buildExtractionProgress("download", Number.parseFloat(match[1]), durationSeconds));
   }
 }
 
@@ -127,11 +132,26 @@ function reportFfmpegProgress(
 
   for (const match of matches) {
     const processedSeconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number.parseFloat(match[3]);
-    onProgress({
-      phase: "convert",
-      percent: clampPercent((processedSeconds / durationSeconds) * 100)
-    });
+    onProgress(buildExtractionProgress("convert", (processedSeconds / durationSeconds) * 100, durationSeconds));
   }
+}
+
+function buildExtractionProgress(
+  phase: AudioExtractionProgress["phase"],
+  percent: number,
+  durationSeconds: number
+): AudioExtractionProgress {
+  const safeDuration = Math.max(0, durationSeconds);
+  const safePercent = clampPercent(percent);
+  const processedSeconds = Math.min(safeDuration, (safePercent / 100) * safeDuration);
+
+  return {
+    phase,
+    percent: safePercent,
+    processedSeconds,
+    totalSeconds: safeDuration,
+    remainingSeconds: Math.max(0, safeDuration - processedSeconds)
+  };
 }
 
 function stripAnsi(value: string): string {

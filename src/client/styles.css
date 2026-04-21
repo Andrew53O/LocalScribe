@@ -363,10 +363,15 @@ textarea {
 
 .status-bar {
   display: grid;
-  grid-template-columns: 1fr auto minmax(120px, 280px) 64px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(120px, 280px) 64px;
   gap: 12px;
   align-items: center;
   margin-bottom: 22px;
+}
+
+.status-bar > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .elapsed-time {

@@ -1,6 +1,6 @@
-# YouTube Segment Transcriber
+# Segment Transcriber
 
-Local-first web app for transcribing selected parts of YouTube videos from audio. It is built for videos without subtitles, supports English, Traditional Chinese (Taiwan), and Indonesian, and preserves natural code-switching when speakers mix English into Mandarin or Indonesian.
+Local-first web app for transcribing selected parts of YouTube videos or uploaded local audio/video files. It is built for media without subtitles, supports English, Traditional Chinese (Taiwan), and Indonesian, and preserves natural code-switching when speakers mix English into Mandarin or Indonesian.
 
 The default path is fully local with `whisper.cpp`. OpenAI remains optional if you later add an API key.
 
@@ -8,6 +8,7 @@ The default path is fully local with `whisper.cpp`. OpenAI remains optional if y
 
 - Transcribes only the selected time range
 - Works with regular YouTube, Shorts, and `/live/...` URLs
+- Supports local audio/video upload through the same transcription pipeline
 - Fetches video duration before starting
 - Validates time ranges against the actual video length
 - Supports local CPU and NVIDIA GPU transcription
@@ -27,6 +28,7 @@ The default path is fully local with `whisper.cpp`. OpenAI remains optional if y
 - Frontend: React + TypeScript + Vite
 - Backend: Fastify + TypeScript
 - Audio/video metadata: `yt-dlp`
+- Local upload handling: Fastify multipart streaming
 - Audio normalization: `ffmpeg`
 - Local speech-to-text: `whisper.cpp`
 - Tests: Vitest
@@ -40,18 +42,20 @@ flowchart LR
         UI[React UI]
         LS[(LocalStorage<br/>defaults + history)]
         YTP[Embedded YouTube Player]
+        FILE[Local Media File]
     end
 
     subgraph API["Fastify API"]
         HEALTH[/GET /api/health/]
         META[/GET /api/video-metadata/]
-        JOBS[/POST /api/transcriptions/]
+        JOBS["POST /api/transcriptions<br/>JSON or multipart"]
         STATUS["GET /api/transcriptions/<br/>:id"]
         RESULT["GET /api/transcriptions/<br/>:id/result"]
     end
 
     subgraph Pipeline["Transcription Pipeline"]
         YTDLP[yt-dlp]
+        UPLOAD[Upload temp storage]
         FFMPEG[ffmpeg]
         WHISPER[whisper.cpp<br/>CPU / CUDA]
         OPENAI[OpenAI API<br/>optional]
@@ -66,6 +70,7 @@ flowchart LR
     U --> UI
     UI <--> LS
     UI --> YTP
+    UI --> FILE
 
     UI --> HEALTH
     UI --> META
@@ -75,8 +80,10 @@ flowchart LR
 
     META --> YTDLP
     JOBS --> YTDLP
+    JOBS --> UPLOAD
     YTDLP --> YT
     YTDLP --> FFMPEG
+    UPLOAD --> FFMPEG
     FFMPEG --> WHISPER
     JOBS -. optional .-> OPENAI
     WHISPER --> REVIEW
@@ -90,15 +97,15 @@ flowchart LR
     classDef pipeline fill:#fff7e8,stroke:#d49b2f,color:#4d3406,stroke-width:1px;
     classDef external fill:#f7f0ff,stroke:#9d72cf,color:#392058,stroke-width:1px;
 
-    class U,UI,LS,YTP browser;
+    class U,UI,LS,YTP,FILE browser;
     class HEALTH,META,JOBS,STATUS,RESULT api;
-    class YTDLP,FFMPEG,WHISPER,OPENAI,REVIEW,EXPORT pipeline;
+    class YTDLP,UPLOAD,FFMPEG,WHISPER,OPENAI,REVIEW,EXPORT pipeline;
     class YT external;
 ```
 
 ## Core Flows
 
-### Transcription
+### YouTube Transcription
 
 1. User pastes a YouTube URL
 2. Client asks backend for video metadata
@@ -110,6 +117,18 @@ flowchart LR
 8. `whisper.cpp` or optional OpenAI transcribes
 9. Server builds sentences, heuristics, highlights, and speaker labels
 10. Client renders transcript, paragraph view, and playback sync
+
+### Local File Transcription
+
+1. User chooses `Local File`
+2. Browser sends the audio/video file as multipart form data
+3. Backend streams the upload to a temporary folder
+4. User-selected `Start` and `End` are passed to `ffmpeg`
+5. `ffmpeg` cuts and converts the selected section to mono `16 kHz` WAV
+6. The same local Whisper/OpenAI, sentence review, and export pipeline runs
+7. Temporary uploaded media is deleted after the job cleanup window
+
+Uploaded local files do not create reusable history entries because browsers cannot safely store a permanent path to the original local file.
 
 ### History
 
@@ -143,6 +162,8 @@ If extraction is still the bottleneck, the next meaningful optimization would be
 - `ffmpeg`
 - `whisper.cpp`
 - A Whisper GGML model file
+
+`yt-dlp` is only needed for YouTube URLs. Local file upload still requires `ffmpeg` plus either `whisper.cpp` or OpenAI mode.
 
 Recommended model:
 
@@ -201,11 +222,14 @@ Avoid `.en` models for this project because they are English-only.
    WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
    WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q5_0=
    WHISPER_MODEL_PATH_LARGE_V3=
+   UPLOAD_MAX_BYTES=2147483648
    PORT=8787
    OPENAI_API_KEY=
    ```
 
    `WHISPER_MODEL_PATH` is kept as the default fallback. If you select `large-v3` or `large-v3-turbo-q5_0` in the UI, set the matching model-specific path too. The backend checks the selected model before extraction starts, so choosing `large-v3` without downloading `ggml-large-v3.bin` fails early with a clear error.
+
+   `UPLOAD_MAX_BYTES` controls the maximum local media upload size. The default is `2147483648` bytes, which is `2 GiB`.
 
 6. Start the app:
 
@@ -253,16 +277,17 @@ If anything is missing or broken, the UI shows which check failed. The GPU statu
 
 ## Usage
 
-1. Paste a YouTube URL
-2. Wait for video duration lookup
-3. Enter `Start` and `End`
-4. Choose language and model
-5. Click `Transcribe Segment`
-6. Review the result in:
+1. Choose `YouTube` or `Local File`
+2. Paste a YouTube URL or pick an audio/video file
+3. For YouTube, wait for video duration lookup
+4. Enter `Start` and `End`
+5. Choose language and model
+6. Click `Transcribe Segment` or `Transcribe File`
+7. Review the result in:
    - `Transcript`
    - `Editable Paragraph`
-7. Use `History` in the left panel to reuse prior videos
-8. Open the `≡` menu in the control panel to change default language and model
+8. Use `History` in the left panel to reuse prior YouTube videos
+9. Open the settings icon in the control panel to change default language and model
 
 ## Transcript Review
 

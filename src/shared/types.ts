@@ -6,6 +6,8 @@ export type LocalModel = "large-v3-turbo-q8_0" | "large-v3-turbo-q5_0" | "large-
 
 export type JobStatus = "queued" | "running" | "completed" | "failed";
 
+export type TranscriptionSource = "youtube" | "upload";
+
 export interface LocalSpeedSettings {
   beamSize: number;
   bestOf: number;
@@ -23,8 +25,8 @@ export interface GpuStatus {
   memoryTotalMiB?: number;
 }
 
-export interface TranscriptionRequest {
-  youtubeUrl: string;
+export interface BaseTranscriptionRequest {
+  sourceType: TranscriptionSource;
   startTime: string;
   endTime: string;
   languageHint: LanguageHint;
@@ -34,6 +36,20 @@ export interface TranscriptionRequest {
   convertToTraditional?: boolean;
   localSpeed: LocalSpeedSettings;
 }
+
+export interface YouTubeTranscriptionRequest extends BaseTranscriptionRequest {
+  sourceType: "youtube";
+  youtubeUrl: string;
+}
+
+export interface UploadTranscriptionRequest extends BaseTranscriptionRequest {
+  sourceType: "upload";
+  uploadFilePath: string;
+  uploadFileName: string;
+  uploadMimeType?: string;
+}
+
+export type TranscriptionRequest = YouTubeTranscriptionRequest | UploadTranscriptionRequest;
 
 export interface Highlight {
   startChar: number;

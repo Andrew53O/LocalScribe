@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, FocusEvent, KeyboardEvent, MouseEvent } from "react";
-import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalSpeedSettings, Provider, TranscriptionResult } from "../shared/types";
+import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalSpeedSettings, Provider, TranscriptionResult, TranscriptionSource } from "../shared/types";
 import { TranscriptView } from "./components/TranscriptView";
 
 const initialForm = {
+  sourceType: "youtube" as TranscriptionSource,
   youtubeUrl: "",
   startTime: "00:00:00",
   endTime: "00:01:00",
@@ -126,6 +127,7 @@ export function App() {
   const [copyStatus, setCopyStatus] = useState("");
   const [resultView, setResultView] = useState<ResultView>("transcript");
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [metadataStatus, setMetadataStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [metadataError, setMetadataError] = useState("");
   const [activeSentenceIndex, setActiveSentenceIndex] = useState<number | null>(null);
@@ -146,7 +148,7 @@ export function App() {
   const [iframePlaybackRequest, setIframePlaybackRequest] = useState({ startSeconds: 0, nonce: 0 });
 
   const isWorking = job?.status === "queued" || job?.status === "running";
-  const playerState = useMemo(() => createPlayerState(form.youtubeUrl), [form.youtubeUrl]);
+  const playerState = useMemo(() => form.sourceType === "youtube" ? createPlayerState(form.youtubeUrl) : null, [form.sourceType, form.youtubeUrl]);
   const isInteractiveMode = playerFocusMode && Boolean(playerState);
   const showCollapsedControlPanel = isInteractiveMode && isControlPanelCollapsed;
   const progressLabel = displayedProgress.toFixed(1);
@@ -292,7 +294,7 @@ export function App() {
   }, [result]);
 
   useEffect(() => {
-    if (!result || !form.youtubeUrl.trim() || job?.status !== "completed") {
+    if (form.sourceType !== "youtube" || !result || !form.youtubeUrl.trim() || job?.status !== "completed") {
       return;
     }
 
@@ -313,9 +315,16 @@ export function App() {
 
       return next.slice(0, 30);
     });
-  }, [result, form.youtubeUrl, videoMetadata, job?.status]);
+  }, [result, form.sourceType, form.youtubeUrl, videoMetadata, job?.status]);
 
   useEffect(() => {
+    if (form.sourceType !== "youtube") {
+      setVideoMetadata(null);
+      setMetadataStatus("idle");
+      setMetadataError("");
+      return;
+    }
+
     const youtubeUrl = form.youtubeUrl.trim();
 
     if (!youtubeUrl) {
@@ -365,7 +374,62 @@ export function App() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [form.youtubeUrl]);
+  }, [form.sourceType, form.youtubeUrl]);
+
+  useEffect(() => {
+    if (form.sourceType !== "upload") {
+      return;
+    }
+
+    if (!selectedFile) {
+      setVideoMetadata(null);
+      setMetadataStatus("idle");
+      setMetadataError("");
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(selectedFile);
+    const media = document.createElement(selectedFile.type.startsWith("video/") ? "video" : "audio");
+    let cancelled = false;
+
+    setVideoMetadata(null);
+    setMetadataStatus("loading");
+    setMetadataError("");
+
+    media.preload = "metadata";
+    media.onloadedmetadata = () => {
+      if (cancelled) {
+        return;
+      }
+
+      const durationSeconds = media.duration;
+      if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+        setVideoMetadata({
+          title: selectedFile.name,
+          durationSeconds
+        });
+        setMetadataStatus("ready");
+        return;
+      }
+
+      setMetadataStatus("error");
+      setMetadataError("Unable to read local file duration. You can still try the selected range.");
+    };
+    media.onerror = () => {
+      if (!cancelled) {
+        setMetadataStatus("error");
+        setMetadataError("Unable to read local file duration. You can still try the selected range.");
+      }
+    };
+    media.src = objectUrl;
+
+    return () => {
+      cancelled = true;
+      media.removeAttribute("src");
+      media.load();
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [form.sourceType, selectedFile]);
 
   useEffect(() => {
     if (!job || job.status === "completed" || job.status === "failed") {
@@ -572,15 +636,23 @@ export function App() {
       return;
     }
 
+    if (form.sourceType === "upload" && !selectedFile) {
+      setError("Choose a local audio or video file first.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
+      const body = form.sourceType === "upload" && selectedFile
+        ? buildUploadFormData(form, selectedFile)
+        : JSON.stringify(form);
       const { response, data: payload } = await performTrackedRequest<JobRecord | { error?: string }>({
         url: "/api/transcriptions",
         init: {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(form)
+          headers: form.sourceType === "upload" ? undefined : { "content-type": "application/json" },
+          body
         },
         responseType: "json",
         onComplete: appendDebugEntry
@@ -965,8 +1037,8 @@ export function App() {
           </div>
           <div className="brand-block">
             <p className="eyebrow">Local audio transcription</p>
-            <h1>YouTube Segment Transcriber</h1>
-            <p className="subtle">Audio-first, subtitle-free, multilingual transcript review.</p>
+            <h1>Segment Transcriber</h1>
+            <p className="subtle">YouTube or local media, audio-first multilingual transcript review.</p>
           </div>
           {controlView === "transcribe" ? (
             <div className="top-action-bar">
@@ -978,7 +1050,7 @@ export function App() {
                 aria-busy={isSubmitting || isWorking}
               >
                 {isSubmitting || isWorking ? <span className="button-spinner" aria-hidden="true" /> : null}
-                <span>{isSubmitting ? "Starting..." : isWorking ? "Transcribing..." : "Transcribe Segment"}</span>
+                <span>{isSubmitting ? "Starting..." : isWorking ? "Transcribing..." : form.sourceType === "upload" ? "Transcribe File" : "Transcribe Segment"}</span>
               </button>
             </div>
           ) : null}
@@ -1163,20 +1235,64 @@ export function App() {
           ) : (
             <>
 
-          <label>
-            YouTube URL
-            <input
-              value={form.youtubeUrl}
-              onChange={(event) => setForm({ ...form, youtubeUrl: event.target.value })}
-              placeholder="https://www.youtube.com/watch?v=..."
-            />
-          </label>
+          <div className="segmented source-tabs" role="tablist" aria-label="Transcription source">
+            <button
+              className={form.sourceType === "youtube" ? "active" : ""}
+              type="button"
+              onClick={() => setForm({ ...form, sourceType: "youtube" })}
+            >
+              YouTube
+            </button>
+            <button
+              className={form.sourceType === "upload" ? "active" : ""}
+              type="button"
+              onClick={() => setForm({ ...form, sourceType: "upload" })}
+            >
+              Local File
+            </button>
+          </div>
 
-          {metadataStatus === "loading" ? <p className="subtle">Checking video duration...</p> : null}
-          {videoMetadata ? (
-            <p className="subtle">Video length: {formatDuration(videoMetadata.durationSeconds)}</p>
-          ) : null}
-          {metadataStatus === "error" ? <p className="warning">{metadataError}</p> : null}
+          {form.sourceType === "youtube" ? (
+            <>
+              <label>
+                YouTube URL
+                <input
+                  value={form.youtubeUrl}
+                  onChange={(event) => setForm({ ...form, youtubeUrl: event.target.value })}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                />
+              </label>
+
+              {metadataStatus === "loading" ? <p className="subtle">Checking video duration...</p> : null}
+              {videoMetadata ? (
+                <p className="subtle">Video length: {formatDuration(videoMetadata.durationSeconds)}</p>
+              ) : null}
+              {metadataStatus === "error" ? <p className="warning">{metadataError}</p> : null}
+            </>
+          ) : (
+            <label>
+              Audio or video file
+              <input
+                accept="audio/*,video/*"
+                type="file"
+                onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+              />
+              {selectedFile ? (
+                <span className="subtle file-selection">
+                  {selectedFile.name} - {formatFileSize(selectedFile.size)}
+                </span>
+              ) : (
+                <span className="subtle file-selection">
+                  Upload media stays local on this machine and is removed after the job cleanup window.
+                </span>
+              )}
+              {metadataStatus === "loading" ? <span className="subtle file-selection">Reading local file duration...</span> : null}
+              {videoMetadata ? (
+                <span className="subtle file-selection">File length: {formatDuration(videoMetadata.durationSeconds)}</span>
+              ) : null}
+              {metadataStatus === "error" ? <span className="warning file-selection">{metadataError}</span> : null}
+            </label>
+          )}
 
           <div className="time-grid">
             <label>
@@ -1534,7 +1650,7 @@ function EmptyState() {
   return (
     <div className="empty-state">
       <p className="eyebrow">Ready</p>
-      <h2>Choose a video range and transcribe from audio.</h2>
+      <h2>Choose a YouTube range or local media file and transcribe from audio.</h2>
       <p>Results appear here with timestamps, sentence boundaries, and highlighted questionable spans.</p>
     </div>
   );
@@ -1548,6 +1664,21 @@ function downloadFile(filename: string, content: string, type: string) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function buildUploadFormData(form: typeof initialForm, file: File): FormData {
+  const payload = new FormData();
+  payload.set("sourceType", "upload");
+  payload.set("mediaFile", file);
+  payload.set("startTime", form.startTime);
+  payload.set("endTime", form.endTime);
+  payload.set("languageHint", form.languageHint);
+  payload.set("provider", form.provider);
+  payload.set("localModel", form.localModel);
+  payload.set("glossary", form.glossary);
+  payload.set("convertToTraditional", String(form.convertToTraditional));
+  payload.set("localSpeed", JSON.stringify(form.localSpeed));
+  return payload;
 }
 
 function formatTimeInput(value: string): string {
@@ -1651,6 +1782,23 @@ function formatDuration(totalSeconds: number): string {
   return [hours, minutes, seconds]
     .map((part) => String(part).padStart(2, "0"))
     .join(":");
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const units = ["KiB", "MiB", "GiB"];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
 }
 
 function clampNumber(value: string, min: number, max: number, fallback: number): number {
@@ -2032,11 +2180,28 @@ async function performTrackedRequest<T>({
 }
 
 function summarizeRequestBody(body: RequestInit["body"]): string | undefined {
-  if (!body || typeof body !== "string") {
+  if (!body) {
     return undefined;
   }
 
-  return truncateDebugText(body);
+  if (typeof body === "string") {
+    return truncateDebugText(body);
+  }
+
+  if (body instanceof FormData) {
+    const entries: string[] = [];
+    body.forEach((value, key) => {
+      if (value instanceof File) {
+        entries.push(`${key}: ${value.name} (${formatFileSize(value.size)})`);
+        return;
+      }
+
+      entries.push(`${key}: ${value}`);
+    });
+    return truncateDebugText(entries.join("\n"));
+  }
+
+  return undefined;
 }
 
 function truncateDebugText(value: string, maxLength = 1200): string {

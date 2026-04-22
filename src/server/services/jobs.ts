@@ -8,7 +8,7 @@ import { applyQualityHighlights } from "../lib/quality.js";
 import { segmentsToSentences } from "../lib/sentence.js";
 import { formatTimestamp, validateRange } from "../lib/time.js";
 import { convertBasicSimplifiedToTraditional } from "../lib/traditional.js";
-import { buildChunkPlan, createAudioChunk, extractSegmentAudio } from "./audio.js";
+import { buildChunkPlan, createAudioChunk, extractLocalMediaSegmentAudio, extractSegmentAudio } from "./audio.js";
 import { transcribeWithOpenAI } from "./openaiTranscription.js";
 import { transcribeWithWhisper } from "./whisper.js";
 
@@ -59,38 +59,7 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
       progress: PROGRESS.extractionStart,
       message: `Preparing audio extraction for ${formatTimestamp(range.durationSeconds)} selected range`
     });
-    const audioPath = await extractSegmentAudio({
-      youtubeUrl: request.youtubeUrl,
-      startSeconds: range.startSeconds,
-      endSeconds: range.endSeconds,
-      workDir,
-      tools: {
-        ytDlpBin: process.env.YTDLP_BIN || "yt-dlp",
-        ffmpegBin: process.env.FFMPEG_BIN || "ffmpeg"
-      },
-      onProgress: (progress) => {
-        if (progress.phase === "prepare") {
-          updateJob(jobId, {
-            progress: PROGRESS.extractionStart,
-            message: formatPreparationProgressMessage(progress)
-          });
-          return;
-        }
-
-        if (progress.phase === "download") {
-          updateJob(jobId, {
-            progress: mapProgress(progress.percent, PROGRESS.extractionStart, PROGRESS.downloadEnd),
-            message: formatTimedProgressMessage("Extracting selected audio", progress)
-          });
-          return;
-        }
-
-        updateJob(jobId, {
-          progress: mapProgress(progress.percent, PROGRESS.downloadEnd, PROGRESS.conversionEnd),
-          message: formatTimedProgressMessage("Converting audio", progress)
-        });
-      }
-    });
+    const audioPath = await prepareSegmentAudio(request, range, workDir, jobId);
 
     const chunkPlan = buildChunkPlan(range.durationSeconds);
     const totalChunks = Math.max(1, chunkPlan.length);
@@ -167,9 +136,78 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
   } finally {
     setTimeout(() => {
       void rm(workDir, { recursive: true, force: true });
+      if (request.sourceType === "upload") {
+        void rm(path.dirname(request.uploadFilePath), { recursive: true, force: true });
+      }
     }, 1000 * 60 * 5);
     jobLogState.delete(jobId);
   }
+}
+
+async function prepareSegmentAudio(
+  request: TranscriptionRequest,
+  range: ReturnType<typeof validateRange>,
+  workDir: string,
+  jobId: string
+): Promise<string> {
+  if (request.sourceType === "upload") {
+    return extractLocalMediaSegmentAudio({
+      sourcePath: request.uploadFilePath,
+      startSeconds: range.startSeconds,
+      endSeconds: range.endSeconds,
+      workDir,
+      tools: {
+        ffmpegBin: process.env.FFMPEG_BIN || "ffmpeg"
+      },
+      onProgress: (progress) => {
+        if (progress.phase === "prepare") {
+          updateJob(jobId, {
+            progress: PROGRESS.extractionStart,
+            message: formatPreparationProgressMessage(progress, "Preparing uploaded media")
+          });
+          return;
+        }
+
+        updateJob(jobId, {
+          progress: mapProgress(progress.percent, PROGRESS.extractionStart, PROGRESS.conversionEnd),
+          message: formatTimedProgressMessage("Converting uploaded media", progress)
+        });
+      }
+    });
+  }
+
+  return extractSegmentAudio({
+    youtubeUrl: request.youtubeUrl,
+    startSeconds: range.startSeconds,
+    endSeconds: range.endSeconds,
+    workDir,
+    tools: {
+      ytDlpBin: process.env.YTDLP_BIN || "yt-dlp",
+      ffmpegBin: process.env.FFMPEG_BIN || "ffmpeg"
+    },
+    onProgress: (progress) => {
+      if (progress.phase === "prepare") {
+        updateJob(jobId, {
+          progress: PROGRESS.extractionStart,
+          message: formatPreparationProgressMessage(progress)
+        });
+        return;
+      }
+
+      if (progress.phase === "download") {
+        updateJob(jobId, {
+          progress: mapProgress(progress.percent, PROGRESS.extractionStart, PROGRESS.downloadEnd),
+          message: formatTimedProgressMessage("Extracting selected audio", progress)
+        });
+        return;
+      }
+
+      updateJob(jobId, {
+        progress: mapProgress(progress.percent, PROGRESS.downloadEnd, PROGRESS.conversionEnd),
+        message: formatTimedProgressMessage("Converting audio", progress)
+      });
+    }
+  });
 }
 
 function updateJob(jobId: string, patch: Partial<JobRecord>) {
@@ -212,9 +250,9 @@ function formatTimedProgressMessage(
 function formatPreparationProgressMessage(progress: {
   totalSeconds: number;
   detail?: string;
-}): string {
+}, label = "Preparing audio extraction"): string {
   const detail = progress.detail ? ` - ${progress.detail}` : "";
-  return `Preparing audio extraction for ${formatTimestamp(progress.totalSeconds)} selected range${detail}`;
+  return `${label} for ${formatTimestamp(progress.totalSeconds)} selected range${detail}`;
 }
 
 function logJobProgress(job: JobRecord) {

@@ -1,13 +1,17 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { access } from "node:fs/promises";
+import os from "node:os";
+import { createWriteStream } from "node:fs";
+import { access, mkdtemp, rm } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import staticPlugin from "@fastify/static";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import { loadLocalEnv } from "./lib/env.js";
 import { resultToSrt, resultToText } from "./lib/export.js";
 import { parseTimestamp } from "./lib/time.js";
-import { transcriptionRequestSchema } from "./lib/validation.js";
+import { transcriptionRequestSchema, uploadTranscriptionRequestSchema } from "./lib/validation.js";
 import { getYoutubeVideoMetadata } from "./services/audio.js";
 import { createJob, getJob } from "./services/jobs.js";
 import { getLocalPrerequisiteStatus } from "./services/prerequisites.js";
@@ -25,6 +29,13 @@ const app = Fastify({
 
 await app.register(cors, {
   origin: true
+});
+
+await app.register(multipart, {
+  limits: {
+    files: 1,
+    fileSize: Number(process.env.UPLOAD_MAX_BYTES || 1024 * 1024 * 1024 * 2)
+  }
 });
 
 app.get("/api/health", async () => {
@@ -57,6 +68,27 @@ app.get("/api/video-metadata", async (request, reply) => {
 });
 
 app.post("/api/transcriptions", async (request, reply) => {
+  if (request.isMultipart()) {
+    try {
+      const uploadRequest = await parseUploadTranscriptionRequest(request);
+      const parsed = uploadTranscriptionRequestSchema.safeParse(uploadRequest);
+
+      if (!parsed.success) {
+        await rm(path.dirname(uploadRequest.uploadFilePath), { recursive: true, force: true });
+        return reply.code(400).send({
+          error: parsed.error.issues.map((issue) => issue.message).join(" ")
+        });
+      }
+
+      const job = createJob(parsed.data);
+      return reply.code(202).send(job);
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : "Unable to process uploaded file."
+      });
+    }
+  }
+
   const parsed = transcriptionRequestSchema.safeParse(request.body);
 
   if (!parsed.success) {
@@ -84,6 +116,49 @@ app.post("/api/transcriptions", async (request, reply) => {
   const job = createJob(parsed.data);
   return reply.code(202).send(job);
 });
+
+async function parseUploadTranscriptionRequest(request: FastifyRequest) {
+  const uploadDir = await mkdtemp(path.join(os.tmpdir(), "yt-transcribe-upload-"));
+  const fields: Record<string, unknown> = {};
+  let uploadFilePath = "";
+
+  try {
+    for await (const part of request.parts()) {
+      if (part.type === "file") {
+        if (uploadFilePath) {
+          part.file.resume();
+          continue;
+        }
+
+        const fileName = sanitizeUploadFileName(part.filename || "uploaded-media");
+        uploadFilePath = path.join(uploadDir, `${crypto.randomUUID()}-${fileName}`);
+        fields.uploadFileName = fileName;
+        fields.uploadMimeType = part.mimetype;
+        await pipeline(part.file, createWriteStream(uploadFilePath));
+      } else {
+        fields[part.fieldname] = part.value;
+      }
+    }
+
+    if (!uploadFilePath) {
+      throw new Error("Choose a local audio or video file to upload.");
+    }
+
+    return {
+      ...fields,
+      sourceType: "upload",
+      uploadFilePath
+    };
+  } catch (error) {
+    await rm(uploadDir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function sanitizeUploadFileName(value: string): string {
+  const safe = path.basename(value).replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").slice(0, 160);
+  return safe || "uploaded-media";
+}
 
 app.get("/api/transcriptions/:jobId", async (request, reply) => {
   const params = request.params as { jobId: string };

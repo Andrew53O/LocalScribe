@@ -1,6 +1,40 @@
 import { z } from "zod";
 
-export const transcriptionRequestSchema = z.object({
+const booleanInput = z.preprocess((value) => {
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  return value;
+}, z.boolean());
+
+const localSpeedSchema = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}, z.object({
+  beamSize: z.coerce.number().int().min(1).max(10).default(5),
+  bestOf: z.coerce.number().int().min(1).max(10).default(5),
+  threads: z.coerce.number().int().min(1).max(32).default(4),
+  vadEnabled: booleanInput.default(false)
+}).default({
+  beamSize: 5,
+  bestOf: 5,
+  threads: 4,
+  vadEnabled: false
+}));
+
+const baseTranscriptionRequestSchema = z.object({
   youtubeUrl: z.string().url().refine(isSupportedYoutubeUrl, "Enter a valid YouTube URL."),
   startTime: z.string().min(4),
   endTime: z.string().min(4),
@@ -8,19 +42,22 @@ export const transcriptionRequestSchema = z.object({
   provider: z.enum(["local", "openai"]).default("local"),
   localModel: z.enum(["large-v3-turbo-q8_0", "large-v3-turbo-q5_0", "large-v3"]).default("large-v3-turbo-q8_0"),
   glossary: z.string().max(2000).optional().default(""),
-  convertToTraditional: z.boolean().optional().default(true),
-  localSpeed: z.object({
-    beamSize: z.coerce.number().int().min(1).max(10).default(5),
-    bestOf: z.coerce.number().int().min(1).max(10).default(5),
-    threads: z.coerce.number().int().min(1).max(32).default(4),
-    vadEnabled: z.boolean().default(false)
-  }).default({
-    beamSize: 5,
-    bestOf: 5,
-    threads: 4,
-    vadEnabled: false
-  })
+  convertToTraditional: booleanInput.optional().default(true),
+  localSpeed: localSpeedSchema
 });
+
+export const transcriptionRequestSchema = baseTranscriptionRequestSchema.extend({
+  sourceType: z.literal("youtube").optional().default("youtube")
+});
+
+export const uploadTranscriptionRequestSchema = baseTranscriptionRequestSchema
+  .omit({ youtubeUrl: true })
+  .extend({
+    sourceType: z.literal("upload"),
+    uploadFilePath: z.string().min(1),
+    uploadFileName: z.string().min(1),
+    uploadMimeType: z.string().optional()
+  });
 
 export function isSupportedYoutubeUrl(value: string): boolean {
   try {

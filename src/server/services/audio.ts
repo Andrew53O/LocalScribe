@@ -17,6 +17,15 @@ export interface ExtractAudioInput {
   onProgress?: (progress: AudioExtractionProgress) => void;
 }
 
+export interface ExtractLocalMediaInput {
+  sourcePath: string;
+  startSeconds: number;
+  endSeconds: number;
+  workDir: string;
+  tools: Pick<AudioTools, "ffmpegBin">;
+  onProgress?: (progress: AudioExtractionProgress) => void;
+}
+
 export interface AudioExtractionProgress {
   phase: "prepare" | "download" | "convert";
   percent: number;
@@ -96,6 +105,43 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
     ],
     {
       timeoutMs: 1000 * 60 * 20,
+      onStderr: (chunk) =>
+        reportFfmpegProgress(chunk, durationSeconds, input.onProgress)
+    }
+  );
+  input.onProgress?.(buildExtractionProgress("convert", 100, durationSeconds));
+
+  return normalizedPath;
+}
+
+export async function extractLocalMediaSegmentAudio(input: ExtractLocalMediaInput): Promise<string> {
+  await mkdir(input.workDir, { recursive: true });
+  const durationSeconds = input.endSeconds - input.startSeconds;
+  const normalizedPath = path.join(input.workDir, "segment.wav");
+
+  input.onProgress?.(buildExtractionProgress("prepare", 0, durationSeconds, "Opening uploaded media"));
+
+  await runCommand(
+    input.tools.ffmpegBin,
+    [
+      "-y",
+      "-ss",
+      String(input.startSeconds),
+      "-t",
+      String(durationSeconds),
+      "-i",
+      input.sourcePath,
+      "-vn",
+      "-c:a",
+      "pcm_s16le",
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      normalizedPath
+    ],
+    {
+      timeoutMs: 1000 * 60 * 30,
       onStderr: (chunk) =>
         reportFfmpegProgress(chunk, durationSeconds, input.onProgress)
     }

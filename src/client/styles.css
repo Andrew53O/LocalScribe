@@ -171,6 +171,16 @@ textarea {
   gap: 12px;
 }
 
+.source-tabs {
+  grid-template-columns: 1fr 1fr;
+}
+
+.file-selection {
+  margin: -2px 0 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
 .speed-settings {
   display: grid;
   gap: 12px;

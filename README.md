@@ -2,7 +2,7 @@
 
 Local-first transcription for YouTube segments and local audio/video files.
 
-![ScribeLocal interface preview](docs/assets/interface-preview.svg)
+![ScribeLocal interface preview](docs/assets/interface-screenshot.png)
 
 ScribeLocal is a local web app for transcribing only the part of a video or audio file you care about. It is built for media without captions, multilingual speech, and low-cost local workflows. The default path uses `whisper.cpp` on your machine, with optional OpenAI transcription if you add an API key.
 
@@ -283,6 +283,14 @@ npm test
 npm run build
 npm start
 ```
+
+Update the README interface screenshot:
+
+```powershell
+npm run docs:screenshot
+```
+
+The screenshot command starts the dev server when needed, fills the UI with a sample YouTube URL, and writes `docs/assets/interface-screenshot.png`. Set `README_SCREENSHOT_YOUTUBE_URL` to capture a different video.
 
 Project layout:
 

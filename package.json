@@ -7,6 +7,7 @@
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite --host 127.0.0.1",
+    "docs:screenshot": "node scripts/capture-readme-screenshot.mjs",
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/index.js",
     "test": "vitest run"
@@ -27,6 +28,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "concurrently": "^8.2.2",
+    "playwright": "^1.59.1",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
     "vite": "^5.3.5",

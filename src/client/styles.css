@@ -483,6 +483,33 @@ progress {
   background: #000000;
 }
 
+.local-media-player {
+  object-fit: contain;
+}
+
+.local-audio-shell {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  background: #14251d;
+  color: #f6f7f4;
+}
+
+.local-audio-shell p {
+  margin: 0;
+  color: #d7e1d6;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.local-audio-player {
+  width: min(100%, 520px);
+}
+
 .player-warning {
   margin: 0;
 }

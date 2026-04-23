@@ -15,6 +15,7 @@ The default path is fully local with `whisper.cpp`. OpenAI remains optional if y
 - Refreshes GPU runtime status while jobs are running
 - Shows sentence-level transcript with timestamps
 - Embeds a synced YouTube player for click-to-seek playback
+- Shows a synced native player for uploaded local audio/video files
 - Includes an interactive mode with a collapsed sidebar rail and synced transcript scrolling
 - Provides an editable paragraph transcript view
 - Includes a local review workflow for approve/edit/reset
@@ -116,7 +117,7 @@ flowchart LR
 7. `ffmpeg` converts audio to mono `16 kHz` using a faster direct PCM conversion path
 8. `whisper.cpp` or optional OpenAI transcribes
 9. Server builds sentences, heuristics, highlights, and speaker labels
-10. Client renders transcript, paragraph view, and playback sync
+10. Client renders transcript, paragraph view, and YouTube playback sync
 
 ### Local File Transcription
 
@@ -126,7 +127,8 @@ flowchart LR
 4. User-selected `Start` and `End` are passed to `ffmpeg`
 5. `ffmpeg` cuts and converts the selected section to mono `16 kHz` WAV
 6. The same local Whisper/OpenAI, sentence review, and export pipeline runs
-7. Temporary uploaded media is deleted after the job cleanup window
+7. Client shows the uploaded media in a native audio/video player with click-to-seek transcript sync
+8. Temporary uploaded media is deleted after the job cleanup window
 
 Uploaded local files do not create reusable history entries because browsers cannot safely store a permanent path to the original local file.
 

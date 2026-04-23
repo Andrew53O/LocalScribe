@@ -104,6 +104,7 @@ export function App() {
   const resultPanelRef = useRef<HTMLElement | null>(null);
   const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
   const playerIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const localMediaRef = useRef<HTMLMediaElement | null>(null);
   const youtubePlayerRef = useRef<YoutubePlayer | null>(null);
   const activeSentenceIndexRef = useRef<number | null>(null);
   const timeFieldStateRef = useRef<Record<TimeFieldName, { segmentIndex: number; firstDigit: string } | null>>({
@@ -146,10 +147,13 @@ export function App() {
   const [playerApiStatus, setPlayerApiStatus] = useState<"idle" | "loading" | "ready" | "fallback">("idle");
   const [playerApiError, setPlayerApiError] = useState("");
   const [iframePlaybackRequest, setIframePlaybackRequest] = useState({ startSeconds: 0, nonce: 0 });
+  const [localMediaUrl, setLocalMediaUrl] = useState("");
 
   const isWorking = job?.status === "queued" || job?.status === "running";
   const playerState = useMemo(() => form.sourceType === "youtube" ? createPlayerState(form.youtubeUrl) : null, [form.sourceType, form.youtubeUrl]);
-  const isInteractiveMode = playerFocusMode && Boolean(playerState);
+  const localMediaKind = useMemo(() => selectedFile ? inferMediaKind(selectedFile) : "video", [selectedFile]);
+  const hasPlaybackSource = Boolean(playerState || localMediaUrl);
+  const isInteractiveMode = playerFocusMode && hasPlaybackSource;
   const showCollapsedControlPanel = isInteractiveMode && isControlPanelCollapsed;
   const progressLabel = displayedProgress.toFixed(1);
   const elapsedLabel = job ? formatElapsedTime(job.createdAt, job.status === "completed" || job.status === "failed" ? job.updatedAt : elapsedNow) : "";
@@ -378,18 +382,36 @@ export function App() {
 
   useEffect(() => {
     if (form.sourceType !== "upload") {
+      setLocalMediaUrl("");
       return;
     }
 
     if (!selectedFile) {
+      setLocalMediaUrl("");
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(selectedFile);
+    setLocalMediaUrl(objectUrl);
+
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [form.sourceType, selectedFile]);
+
+  useEffect(() => {
+    if (form.sourceType !== "upload") {
+      return;
+    }
+
+    if (!selectedFile || !localMediaUrl) {
       setVideoMetadata(null);
       setMetadataStatus("idle");
       setMetadataError("");
       return;
     }
 
-    const objectUrl = URL.createObjectURL(selectedFile);
-    const media = document.createElement(selectedFile.type.startsWith("video/") ? "video" : "audio");
+    const media = document.createElement(localMediaKind);
     let cancelled = false;
 
     setVideoMetadata(null);
@@ -421,15 +443,14 @@ export function App() {
         setMetadataError("Unable to read local file duration. You can still try the selected range.");
       }
     };
-    media.src = objectUrl;
+    media.src = localMediaUrl;
 
     return () => {
       cancelled = true;
       media.removeAttribute("src");
       media.load();
-      URL.revokeObjectURL(objectUrl);
     };
-  }, [form.sourceType, selectedFile]);
+  }, [form.sourceType, localMediaKind, localMediaUrl, selectedFile]);
 
   useEffect(() => {
     if (!job || job.status === "completed" || job.status === "failed") {
@@ -507,8 +528,10 @@ export function App() {
       youtubePlayerRef.current = null;
       setPlayerApiStatus("idle");
       setPlayerApiError("");
-      setPlayerFocusMode(false);
-      setIsControlPanelCollapsed(false);
+      if (!localMediaUrl) {
+        setPlayerFocusMode(false);
+        setIsControlPanelCollapsed(false);
+      }
       setIframePlaybackRequest({ startSeconds: 0, nonce: 0 });
       return;
     }
@@ -578,7 +601,7 @@ export function App() {
       youtubePlayerRef.current?.destroy();
       youtubePlayerRef.current = null;
     };
-  }, [playerState?.videoId]);
+  }, [playerState?.videoId, localMediaUrl]);
 
   useEffect(() => {
     if (playerApiStatus !== "ready" || !youtubePlayerRef.current || !result?.sentences.length) {
@@ -618,6 +641,34 @@ export function App() {
 
     return () => window.clearInterval(intervalId);
   }, [result, isInteractiveMode, playerState?.videoId, playerApiStatus]);
+
+  useEffect(() => {
+    if (form.sourceType !== "upload" || !localMediaUrl || !result?.sentences.length) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const media = localMediaRef.current;
+
+      if (!media || !Number.isFinite(media.currentTime)) {
+        return;
+      }
+
+      const nextIndex = findSentenceIndexForTime(result.sentences, media.currentTime);
+      if (nextIndex === null || nextIndex === activeSentenceIndexRef.current) {
+        return;
+      }
+
+      activeSentenceIndexRef.current = nextIndex;
+      setActiveSentenceIndex(nextIndex);
+
+      if (isInteractiveMode) {
+        scrollSentenceIntoView(nextIndex);
+      }
+    }, 250);
+
+    return () => window.clearInterval(intervalId);
+  }, [form.sourceType, localMediaUrl, result, isInteractiveMode]);
 
   async function submit() {
     setError("");
@@ -780,7 +831,14 @@ export function App() {
     setActiveSentenceIndex(index);
     activeSentenceIndexRef.current = index;
 
-    if (!playerState) {
+    if (!hasPlaybackSource) {
+      return;
+    }
+
+    if (localMediaUrl && localMediaRef.current) {
+      const targetSeconds = Math.max(0, seconds);
+      localMediaRef.current.currentTime = targetSeconds;
+      void localMediaRef.current.play().catch(() => undefined);
       return;
     }
 
@@ -1428,12 +1486,12 @@ export function App() {
 
           {result ? (
             <>
-              {playerState ? (
-                <section className="player-panel" aria-label="YouTube playback">
+              {hasPlaybackSource ? (
+                <section className="player-panel" aria-label={playerState ? "YouTube playback" : "Local media playback"}>
                   <div className="player-header">
                     <div>
                       <p className="eyebrow">{isInteractiveMode ? "Interactive Mode" : "Playback"}</p>
-                      <h3>{isInteractiveMode ? "Interactive transcript sync" : "Synced YouTube player"}</h3>
+                      <h3>{isInteractiveMode ? "Interactive transcript sync" : playerState ? "Synced YouTube player" : "Local media player"}</h3>
                     </div>
                     <div className="player-actions">
                       {playerFocusMode ? (
@@ -1447,18 +1505,43 @@ export function App() {
                     </div>
                   </div>
                   <div className="player-frame-wrap">
-                    <iframe
-                      key={`${playerState.videoId}-${iframePlaybackRequest.nonce}`}
-                      ref={playerIframeRef}
-                      className="player-host"
-                      src={buildPlayerEmbedUrl(playerState, iframePlaybackRequest.startSeconds, iframePlaybackRequest.nonce > 0)}
-                      title="YouTube player"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                      referrerPolicy="strict-origin-when-cross-origin"
-                    />
+                    {playerState ? (
+                      <iframe
+                        key={`${playerState.videoId}-${iframePlaybackRequest.nonce}`}
+                        ref={playerIframeRef}
+                        className="player-host"
+                        src={buildPlayerEmbedUrl(playerState, iframePlaybackRequest.startSeconds, iframePlaybackRequest.nonce > 0)}
+                        title="YouTube player"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                        referrerPolicy="strict-origin-when-cross-origin"
+                      />
+                    ) : localMediaKind === "video" ? (
+                      <video
+                        ref={(node) => {
+                          localMediaRef.current = node;
+                        }}
+                        className="player-host local-media-player"
+                        controls
+                        playsInline
+                        src={localMediaUrl}
+                        title="Local video player"
+                      />
+                    ) : (
+                      <div className="local-audio-shell">
+                        <audio
+                          ref={(node) => {
+                            localMediaRef.current = node;
+                          }}
+                          className="local-audio-player"
+                          controls
+                          src={localMediaUrl}
+                        />
+                        <p>{selectedFile?.name ?? "Local audio file"}</p>
+                      </div>
+                    )}
                   </div>
-                  {playerApiStatus === "fallback" ? <p className="subtle player-warning">{playerApiError}</p> : null}
+                  {playerState && playerApiStatus === "fallback" ? <p className="subtle player-warning">{playerApiError}</p> : null}
                 </section>
               ) : null}
               {!isInteractiveMode ? (
@@ -1799,6 +1882,18 @@ function formatFileSize(bytes: number): string {
   }
 
   return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+}
+
+function inferMediaKind(file: File): "audio" | "video" {
+  if (file.type.startsWith("audio/")) {
+    return "audio";
+  }
+
+  if (file.type.startsWith("video/")) {
+    return "video";
+  }
+
+  return /\.(?:aac|aiff?|flac|m4a|mp3|ogg|opus|wav|wma)$/i.test(file.name) ? "audio" : "video";
 }
 
 function clampNumber(value: string, min: number, max: number, fallback: number): number {

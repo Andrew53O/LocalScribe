@@ -622,7 +622,7 @@ progress {
 }
 
 .plain-transcript textarea {
-  min-height: 180px;
+  min-height: clamp(360px, 52vh, 680px);
   line-height: 1.6;
 }
 

@@ -95,6 +95,17 @@ button:disabled {
   margin-bottom: 0;
 }
 
+.settings-tab-label {
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  border: 1px solid #1f6f54;
+  border-radius: 6px;
+  background: #1f6f54;
+  color: #ffffff;
+  font-weight: 750;
+}
+
 .control-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -173,6 +184,42 @@ textarea {
 
 .source-tabs {
   grid-template-columns: 1fr 1fr;
+}
+
+.file-field {
+  gap: 9px;
+}
+
+.file-picker {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+}
+
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-picker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid #8fa99a;
+  border-radius: 6px;
+  background: #edf5ef;
+  color: #163a2c;
+  font-weight: 750;
+}
+
+.file-picker:hover .file-picker-button,
+.file-input:focus-visible + .file-picker-button {
+  border-color: #1f6f54;
+  box-shadow: 0 0 0 3px rgba(31, 111, 84, 0.14);
 }
 
 .file-selection {

@@ -1065,40 +1065,46 @@ export function App() {
           ) : (
             <>
           <div className="control-header">
-            <div
-              className="segmented control-tabs"
-              role="tablist"
-              aria-label="Control views"
-              style={{ gridTemplateColumns: `repeat(${debugEnabled ? 3 : 2}, 1fr)` }}
-            >
-              <button className={controlView === "transcribe" ? "active" : ""} type="button" onClick={() => openControlView("transcribe")}>
-                Transcribe
-              </button>
-              <button className={controlView === "history" ? "active" : ""} type="button" onClick={() => openControlView("history")}>
-                History
-              </button>
-              {debugEnabled ? (
-                <button className={controlView === "debug" ? "active" : ""} type="button" onClick={() => openControlView("debug")}>
-                  Debug
+            {showSettings ? (
+              <div className="settings-tab-label">Settings</div>
+            ) : (
+              <div
+                className="segmented control-tabs"
+                role="tablist"
+                aria-label="Control views"
+                style={{ gridTemplateColumns: `repeat(${debugEnabled ? 3 : 2}, 1fr)` }}
+              >
+                <button className={controlView === "transcribe" ? "active" : ""} type="button" onClick={() => openControlView("transcribe")}>
+                  Transcribe
                 </button>
-              ) : null}
-            </div>
+                <button className={controlView === "history" ? "active" : ""} type="button" onClick={() => openControlView("history")}>
+                  History
+                </button>
+                {debugEnabled ? (
+                  <button className={controlView === "debug" ? "active" : ""} type="button" onClick={() => openControlView("debug")}>
+                    Debug
+                  </button>
+                ) : null}
+              </div>
+            )}
             <button
               className={`icon-button settings-toggle ${showSettings ? "active" : ""}`}
               type="button"
               aria-label="Open local settings"
               title="Local settings"
-              onClick={() => setShowSettings((current) => !current)}
+              onClick={() => showSettings ? setShowSettings(false) : openSettingsPanel()}
             >
               ≡
             </button>
           </div>
+          {!showSettings ? (
           <div className="brand-block">
             <p className="eyebrow">Local audio transcription</p>
             <h1>Segment Transcriber</h1>
             <p className="subtle">YouTube or local media, audio-first multilingual transcript review.</p>
           </div>
-          {controlView === "transcribe" ? (
+          ) : null}
+          {!showSettings && controlView === "transcribe" ? (
             <div className="top-action-bar">
               <button
                 className={`primary top-primary ${isSubmitting || isWorking ? "busy" : ""}`}
@@ -1203,7 +1209,7 @@ export function App() {
             </section>
           ) : null}
 
-          {controlView === "history" ? (
+          {!showSettings ? (controlView === "history" ? (
             <section className="history-panel" aria-label="History">
               <label>
                 Search history
@@ -1328,13 +1334,18 @@ export function App() {
               {metadataStatus === "error" ? <p className="warning">{metadataError}</p> : null}
             </>
           ) : (
-            <label>
-              Audio or video file
-              <input
-                accept="audio/*,video/*"
-                type="file"
-                onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
-              />
+            <label className="file-field">
+              <span>Audio or video file</span>
+              <span className="file-picker">
+                <input
+                  accept="audio/*,video/*"
+                  aria-label="Choose local audio or video file"
+                  className="file-input"
+                  type="file"
+                  onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                />
+                <span className="file-picker-button">Choose media file</span>
+              </span>
               {selectedFile ? (
                 <span className="subtle file-selection">
                   {selectedFile.name} - {formatFileSize(selectedFile.size)}
@@ -1469,7 +1480,7 @@ export function App() {
           {job?.status === "failed" ? <p className="error">{job.error}</p> : null}
 
             </>
-          )}
+          )) : null}
             </>
           )}
         </aside>

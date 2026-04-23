@@ -14,4 +14,8 @@ describe("time helpers", () => {
   it("rejects invalid ranges", () => {
     expect(() => validateRange("00:02:00", "00:01:00")).toThrow("End time");
   });
+
+  it("accepts ranges longer than 2 hours", () => {
+    expect(validateRange("00:00:00", "03:30:00").durationSeconds).toBe(12600);
+  });
 });

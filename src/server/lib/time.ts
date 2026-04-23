@@ -26,16 +26,12 @@ export function formatTimestamp(totalSeconds: number): string {
     .join(":");
 }
 
-export function validateRange(startTime: string, endTime: string, maxSeconds = 7200) {
+export function validateRange(startTime: string, endTime: string) {
   const startSeconds = parseTimestamp(startTime);
   const endSeconds = parseTimestamp(endTime);
 
   if (endSeconds <= startSeconds) {
     throw new Error("End time must be after start time.");
-  }
-
-  if (endSeconds - startSeconds > maxSeconds) {
-    throw new Error("Selected range is too long. Keep it under 2 hours.");
   }
 
   return {

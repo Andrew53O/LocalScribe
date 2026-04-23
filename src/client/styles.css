@@ -363,6 +363,24 @@ textarea {
   font-size: 18px;
 }
 
+.cache-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #d8ded3;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.cache-path {
+  margin: 2px 0 0;
+  color: #425247;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .primary {
   display: inline-flex;
   align-items: center;
@@ -420,7 +438,7 @@ textarea {
 
 .status-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(120px, 280px) 64px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(120px, 280px) 64px auto;
   gap: 12px;
   align-items: center;
   margin-bottom: 22px;
@@ -435,6 +453,12 @@ textarea {
   color: #607064;
   font-size: 14px;
   white-space: nowrap;
+}
+
+.status-cancel-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
 }
 
 .gpu-status {

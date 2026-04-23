@@ -16,6 +16,7 @@ export interface WhisperInput {
   languageHint: LanguageHint;
   glossary?: string;
   config: WhisperConfig;
+  signal?: AbortSignal;
 }
 
 export function buildWhisperArgs(input: WhisperInput): string[] {
@@ -59,7 +60,7 @@ export function buildWhisperArgs(input: WhisperInput): string[] {
 
 export async function transcribeWithWhisper(input: WhisperInput): Promise<WhisperSegment[]> {
   const args = buildWhisperArgs(input);
-  await runCommand(input.config.whisperBin, args, { timeoutMs: 1000 * 60 * 60 * 4 });
+  await runCommand(input.config.whisperBin, args, { timeoutMs: 1000 * 60 * 60 * 4, signal: input.signal });
 
   const outputBase = path.join(input.workDir, "whisper-output");
 

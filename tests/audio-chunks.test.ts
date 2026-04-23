@@ -7,6 +7,7 @@ import {
   buildChunkPlan,
   buildDirectSegmentYtDlpArgs,
   findCachedYoutubeSource,
+  findValidatedCachedYoutubeSource,
   getYoutubeCacheKey,
   getYoutubeVideoCacheDir,
   readYoutubeCacheMetadata,
@@ -71,6 +72,35 @@ describe("YouTube audio cache helpers", () => {
         cachedFileName: "source.webm",
         cachedAt: "2026-04-23T00:00:00.000Z"
       });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("requires matching metadata for validated cached source audio", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "audio-cache-validated-test-"));
+    const metadataPath = path.join(tempDir, "metadata.json");
+
+    try {
+      await writeFile(path.join(tempDir, "source.webm"), "audio");
+      await writeYoutubeCacheMetadata(metadataPath, {
+        id: "video-id",
+        title: "Video title",
+        sourceUrl: "https://youtube.com/watch?v=video-id",
+        durationSeconds: 120,
+        cachedFileName: "source.webm",
+        cachedAt: "2026-04-23T00:00:00.000Z"
+      });
+
+      await expect(findValidatedCachedYoutubeSource(tempDir, metadataPath, "video-id", { id: "video-id", durationSeconds: 120 }))
+        .resolves
+        .toBe(path.join(tempDir, "source.webm"));
+      await expect(findValidatedCachedYoutubeSource(tempDir, metadataPath, "other-id", { id: "other-id", durationSeconds: 120 }))
+        .resolves
+        .toBeUndefined();
+      await expect(findValidatedCachedYoutubeSource(tempDir, metadataPath, "video-id", { id: "video-id", durationSeconds: 200 }))
+        .resolves
+        .toBeUndefined();
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

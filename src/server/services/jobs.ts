@@ -1,9 +1,9 @@
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { constants as fsConstants } from "node:fs";
 import type { JobRecord, TranscriptionRequest, TranscriptionResult, WhisperSegment } from "../../shared/types.js";
 import { applyHeuristicSpeakerDiarization } from "../lib/diarization.js";
+import { resolveSelectedModelPath } from "../lib/models.js";
 import { applyQualityHighlights } from "../lib/quality.js";
 import { segmentsToSentences } from "../lib/sentence.js";
 import { formatTimestamp, validateRange } from "../lib/time.js";
@@ -11,9 +11,14 @@ import { convertBasicSimplifiedToTraditional } from "../lib/traditional.js";
 import { buildChunkPlan, createAudioChunk, extractCachedYoutubeSegmentAudio, extractLocalMediaSegmentAudio, extractSegmentAudio, getYoutubeVideoMetadata, type VideoMetadata } from "./audio.js";
 import { transcribeWithOpenAI } from "./openaiTranscription.js";
 import { transcribeWithWhisper } from "./whisper.js";
+import { getYoutubeCacheRoot } from "./youtubeCache.js";
 
 const jobs = new Map<string, JobRecord>();
 const jobLogState = new Map<string, { progress: number; stage: string }>();
+const jobInputs = new Map<string, { request: TranscriptionRequest; metadata?: VideoMetadata }>();
+const jobQueue: string[] = [];
+const jobAbortControllers = new Map<string, AbortController>();
+let activeJobId: string | null = null;
 
 const PROGRESS = {
   validating: 5,
@@ -38,7 +43,9 @@ export function createJob(request: TranscriptionRequest, metadata?: VideoMetadat
   };
 
   jobs.set(job.id, job);
-  void runJob(job.id, request, metadata);
+  jobInputs.set(job.id, { request, metadata });
+  jobQueue.push(job.id);
+  processJobQueue();
 
   return job;
 }
@@ -47,25 +54,100 @@ export function getJob(id: string): JobRecord | undefined {
   return jobs.get(id);
 }
 
-async function runJob(jobId: string, request: TranscriptionRequest, metadata?: VideoMetadata) {
+export function cancelJob(id: string): JobRecord | undefined {
+  const job = jobs.get(id);
+  const input = jobInputs.get(id);
+
+  if (!job) {
+    return undefined;
+  }
+
+  if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
+    return job;
+  }
+
+  if (activeJobId === id) {
+    updateJob(id, {
+      status: "cancelled",
+      progress: 100,
+      message: "Cancelled"
+    });
+    jobAbortControllers.get(id)?.abort();
+    return jobs.get(id);
+  }
+
+  const queuedIndex = jobQueue.indexOf(id);
+  if (queuedIndex >= 0) {
+    jobQueue.splice(queuedIndex, 1);
+  }
+
+  updateJob(id, {
+    status: "cancelled",
+    progress: 100,
+    message: "Cancelled"
+  });
+
+  if (input) {
+    void cleanupRequestUpload(input.request);
+  }
+  jobInputs.delete(id);
+
+  return jobs.get(id);
+}
+
+function processJobQueue() {
+  if (activeJobId) {
+    return;
+  }
+
+  const nextJobId = jobQueue.shift();
+  if (!nextJobId) {
+    return;
+  }
+
+  const input = jobInputs.get(nextJobId);
+  if (!input) {
+    processJobQueue();
+    return;
+  }
+
+  activeJobId = nextJobId;
+  const abortController = new AbortController();
+  jobAbortControllers.set(nextJobId, abortController);
+
+  void runJob(nextJobId, input.request, input.metadata, abortController.signal)
+    .finally(() => {
+      jobAbortControllers.delete(nextJobId);
+      jobInputs.delete(nextJobId);
+      if (activeJobId === nextJobId) {
+        activeJobId = null;
+      }
+      processJobQueue();
+    });
+}
+
+async function runJob(jobId: string, request: TranscriptionRequest, metadata: VideoMetadata | undefined, signal: AbortSignal) {
   const workDir = await mkdtemp(path.join(os.tmpdir(), "yt-transcribe-"));
 
   try {
+    assertNotCancelled(signal);
     updateJob(jobId, { status: "running", progress: PROGRESS.validating, message: "Validating time range" });
     const range = validateRange(request.startTime, request.endTime);
     const localModelPath = request.provider === "local" ? await resolveSelectedModelPath(request.localModel) : "";
 
+    assertNotCancelled(signal);
     updateJob(jobId, {
       progress: PROGRESS.extractionStart,
       message: `Preparing audio extraction for ${formatTimestamp(range.durationSeconds)} selected range`
     });
-    const audioPath = await prepareSegmentAudio(request, range, workDir, jobId, metadata);
+    const audioPath = await prepareSegmentAudio(request, range, workDir, jobId, metadata, signal);
 
     const chunkPlan = buildChunkPlan(range.durationSeconds);
     const totalChunks = Math.max(1, chunkPlan.length);
     const aggregatedSegments: WhisperSegment[] = [];
 
     for (const chunk of chunkPlan) {
+      assertNotCancelled(signal);
       updateJob(jobId, {
         progress: mapProgress((chunk.index / totalChunks) * 100, PROGRESS.transcriptionStart, PROGRESS.transcriptionEnd),
         message: `Transcribing chunk ${chunk.index + 1} of ${totalChunks}`
@@ -77,9 +159,11 @@ async function runJob(jobId: string, request: TranscriptionRequest, metadata?: V
         chunk.startSeconds,
         chunk.durationSeconds,
         workDir,
-        process.env.FFMPEG_BIN || "ffmpeg"
+        process.env.FFMPEG_BIN || "ffmpeg",
+        signal
       );
 
+      assertNotCancelled(signal);
       const rawSegments =
         request.provider === "openai"
           ? await transcribeWithOpenAI({
@@ -97,7 +181,8 @@ async function runJob(jobId: string, request: TranscriptionRequest, metadata?: V
                 modelPath: localModelPath,
                 modelName: request.localModel,
                 speed: request.localSpeed
-              }
+              },
+              signal
             });
 
       aggregatedSegments.push(
@@ -117,6 +202,7 @@ async function runJob(jobId: string, request: TranscriptionRequest, metadata?: V
       });
     }
 
+    assertNotCancelled(signal);
     updateJob(jobId, { progress: PROGRESS.review, message: "Finalizing transcript review" });
     const result = buildResult(request, range.durationSeconds, aggregatedSegments, totalChunks, totalChunks, false);
 
@@ -127,6 +213,15 @@ async function runJob(jobId: string, request: TranscriptionRequest, metadata?: V
       result
     });
   } catch (error) {
+    if (signal.aborted || isCancellationError(error)) {
+      updateJob(jobId, {
+        status: "cancelled",
+        progress: 100,
+        message: "Cancelled"
+      });
+      return;
+    }
+
     updateJob(jobId, {
       status: "failed",
       progress: 100,
@@ -136,9 +231,7 @@ async function runJob(jobId: string, request: TranscriptionRequest, metadata?: V
   } finally {
     setTimeout(() => {
       void rm(workDir, { recursive: true, force: true });
-      if (request.sourceType === "upload") {
-        void rm(path.dirname(request.uploadFilePath), { recursive: true, force: true });
-      }
+      void cleanupRequestUpload(request);
     }, 1000 * 60 * 5);
     jobLogState.delete(jobId);
   }
@@ -149,7 +242,8 @@ async function prepareSegmentAudio(
   range: ReturnType<typeof validateRange>,
   workDir: string,
   jobId: string,
-  metadata?: VideoMetadata
+  metadata: VideoMetadata | undefined,
+  signal: AbortSignal
 ): Promise<string> {
   if (request.sourceType === "upload") {
     return extractLocalMediaSegmentAudio({
@@ -173,7 +267,8 @@ async function prepareSegmentAudio(
           progress: mapProgress(progress.percent, PROGRESS.extractionStart, PROGRESS.conversionEnd),
           message: formatTimedProgressMessage("Converting uploaded media", progress)
         });
-      }
+      },
+      signal
     });
   }
 
@@ -212,9 +307,14 @@ async function prepareSegmentAudio(
             progress: mapProgress(progress.percent, PROGRESS.downloadEnd, PROGRESS.conversionEnd),
             message: formatTimedProgressMessage("Cutting selected range from cached audio", progress)
           });
-        }
+        },
+        signal
       });
     } catch (error) {
+      if (signal.aborted || isCancellationError(error)) {
+        throw error;
+      }
+
       const reason = error instanceof Error ? error.message : "Unknown cache error";
       updateJob(jobId, {
         progress: PROGRESS.extractionStart,
@@ -253,12 +353,9 @@ async function prepareSegmentAudio(
         progress: mapProgress(progress.percent, PROGRESS.downloadEnd, PROGRESS.conversionEnd),
         message: formatTimedProgressMessage("Converting audio", progress)
       });
-    }
+    },
+    signal
   });
-}
-
-function getYoutubeCacheRoot(): string {
-  return path.resolve(process.env.YOUTUBE_CACHE_DIR || path.join(process.cwd(), ".cache", "scribelocal", "youtube"));
 }
 
 function updateJob(jobId: string, patch: Partial<JobRecord>) {
@@ -311,7 +408,7 @@ function logJobProgress(job: JobRecord) {
   const progressChanged = !previous || Math.abs(job.progress - previous.progress) >= 1;
   const stage = normalizeProgressStage(job.message);
   const stageChanged = previous?.stage !== stage;
-  const terminalStateChanged = job.status === "completed" || job.status === "failed";
+  const terminalStateChanged = job.status === "completed" || job.status === "failed" || job.status === "cancelled";
 
   if (!progressChanged && !stageChanged && !terminalStateChanged) {
     return;
@@ -351,54 +448,20 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-async function resolveSelectedModelPath(modelName: TranscriptionRequest["localModel"]): Promise<string> {
-  const modelPath = process.env[modelEnvName(modelName)] || process.env.WHISPER_MODEL_PATH;
-
-  if (!modelPath) {
-    throw new Error(
-      `Selected local model ${modelName}, but no model path is configured. Set ${modelEnvName(modelName)} in .env.`
-    );
+function assertNotCancelled(signal: AbortSignal) {
+  if (signal.aborted) {
+    throw new Error("Job cancelled.");
   }
-
-  if (!modelPathMatchesSelection(modelPath, modelName)) {
-    throw new Error(
-      `Selected local model ${modelName}, but configured model path looks different: ${modelPath}. Set ${modelEnvName(modelName)} to the matching model file.`
-    );
-  }
-
-  try {
-    await access(modelPath, fsConstants.R_OK);
-  } catch {
-    throw new Error(`Selected local model ${modelName}, but the model file cannot be read: ${modelPath}`);
-  }
-
-  return modelPath;
 }
 
-function modelEnvName(modelName: TranscriptionRequest["localModel"]): string {
-  if (modelName === "large-v3") {
-    return "WHISPER_MODEL_PATH_LARGE_V3";
-  }
-
-  if (modelName === "large-v3-turbo-q5_0") {
-    return "WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q5_0";
-  }
-
-  return "WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0";
+function isCancellationError(error: unknown): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes("cancel");
 }
 
-function modelPathMatchesSelection(modelPath: string, modelName: TranscriptionRequest["localModel"]): boolean {
-  const filename = path.basename(modelPath).toLowerCase();
-
-  if (modelName === "large-v3") {
-    return filename.includes("large-v3") && !filename.includes("turbo");
+async function cleanupRequestUpload(request: TranscriptionRequest) {
+  if (request.sourceType === "upload") {
+    await rm(path.dirname(request.uploadFilePath), { recursive: true, force: true });
   }
-
-  if (modelName === "large-v3-turbo-q5_0") {
-    return filename.includes("large-v3-turbo") && filename.includes("q5_0");
-  }
-
-  return filename.includes("large-v3-turbo") && filename.includes("q8_0");
 }
 
 function buildResult(

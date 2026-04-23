@@ -29,6 +29,8 @@ ScribeLocal is a local web app for transcribing only the part of a video or audi
 | Cache-first extraction | Downloads best YouTube audio once into `.cache/`, then uses local `ffmpeg` cuts |
 | Direct segment extraction | Optional legacy mode using `yt-dlp --download-sections` |
 | Local transcription | `whisper.cpp` with CPU or CUDA builds |
+| Model readiness | Health check reports every configured local model path |
+| Job control | One running job at a time, queued jobs, and cancel support |
 | Optional API mode | OpenAI transcription when `OPENAI_API_KEY` is configured |
 | Review workflow | Approve, mark for review, edit, reset, and inspect highlights |
 | Interactive mode | Player and transcript stay synced while playback moves |
@@ -53,7 +55,9 @@ flowchart TB
         META["GET /api/video-metadata"]:::api
         CREATE["POST /api/transcriptions<br/>JSON or multipart"]:::api
         STATUS["GET /api/transcriptions/:id"]:::api
+        CANCEL["POST /api/transcriptions/:id/cancel"]:::api
         RESULT["GET /api/transcriptions/:id/result"]:::api
+        CLEARCACHE["DELETE /api/youtube-cache"]:::api
     end
 
     subgraph Source["Source Preparation"]
@@ -82,7 +86,9 @@ flowchart TB
     UI --> META
     UI --> CREATE
     UI --> STATUS
+    UI --> CANCEL
     UI --> RESULT
+    UI --> CLEARCACHE
 
     META --> YTDLP
     CREATE --> YTDLP
@@ -117,12 +123,22 @@ flowchart TB
 1. The browser sends a YouTube URL and selected time range.
 2. The server reads metadata with `yt-dlp`.
 3. In `cache-first` mode, the server checks `.cache/scribelocal/youtube/`.
-4. On a cache miss, it downloads full best-audio once with `yt-dlp`.
-5. On a cache hit, it skips the YouTube download.
-6. `ffmpeg` cuts the selected range from cached audio and converts it to mono `16 kHz` WAV.
-7. The app chunks the WAV, transcribes it, reviews sentence quality, and streams partial results.
+4. Cache hits require matching metadata and a readable cached source file.
+5. On a cache miss, it downloads full best-audio once with `yt-dlp` while holding a per-video lock file.
+6. On a cache hit, it skips the YouTube download.
+7. `ffmpeg` cuts the selected range from cached audio and converts it to mono `16 kHz` WAV.
+8. The app chunks the WAV, transcribes it, reviews sentence quality, and streams partial results.
 
 `direct-segment` mode is still available in Settings. It uses the older `yt-dlp --download-sections` path.
+
+The cache can be cleared from Local Settings or with `DELETE /api/youtube-cache`.
+
+### Job Lifecycle
+
+- Jobs are queued in memory and only one job runs at a time.
+- The UI shows queued/running progress and can cancel the current job.
+- Cancelling a running local job aborts the active external command when possible.
+- Jobs and results are still memory-only and reset when the server restarts.
 
 ### Local File Jobs
 
@@ -251,12 +267,16 @@ GET  /api/health
 GET  /api/video-metadata?youtubeUrl=...
 POST /api/transcriptions
 GET  /api/transcriptions/:jobId
+POST /api/transcriptions/:jobId/cancel
 GET  /api/transcriptions/:jobId/result
 GET  /api/transcriptions/:jobId/result?format=txt
 GET  /api/transcriptions/:jobId/result?format=srt
+DELETE /api/youtube-cache
 ```
 
 `POST /api/transcriptions` accepts JSON for YouTube jobs and multipart form data for uploaded local files.
+
+`GET /api/health` reports command readiness, every model-specific path, the active YouTube cache directory, GPU status, and OpenAI availability.
 
 ## Environment Variables
 
@@ -322,7 +342,7 @@ dist/
 
 ### Local setup is incomplete
 
-Check `/api/health` or the UI warning. Confirm `WHISPER_CPP_BIN`, model paths, `FFMPEG_BIN`, and `YTDLP_BIN`.
+Check `/api/health` or the UI warning. Confirm `WHISPER_CPP_BIN`, the selected model path, `FFMPEG_BIN`, and `YTDLP_BIN`.
 
 ### GPU is not used
 
@@ -330,7 +350,7 @@ Make sure `WHISPER_CPP_BIN` points to a CUDA/cuBLAS build of `whisper-cli`, not 
 
 ### YouTube extraction is slow
 
-Use `cache-first`. The first run still downloads source audio, but repeated ranges from the same video should skip that cost. To clear the cache, delete `.cache/scribelocal/youtube/` or your custom `YOUTUBE_CACHE_DIR`.
+Use `cache-first`. The first run still downloads source audio, but repeated ranges from the same video should skip that cost. To clear the cache, use Local Settings, call `DELETE /api/youtube-cache`, delete `.cache/scribelocal/youtube/`, or delete your custom `YOUTUBE_CACHE_DIR`.
 
 ### Chinese audio becomes English
 

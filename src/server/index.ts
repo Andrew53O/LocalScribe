@@ -13,8 +13,9 @@ import { resultToSrt, resultToText } from "./lib/export.js";
 import { parseTimestamp } from "./lib/time.js";
 import { transcriptionRequestSchema, uploadTranscriptionRequestSchema } from "./lib/validation.js";
 import { getYoutubeVideoMetadata } from "./services/audio.js";
-import { createJob, getJob } from "./services/jobs.js";
+import { cancelJob, createJob, getJob } from "./services/jobs.js";
 import { getLocalPrerequisiteStatus } from "./services/prerequisites.js";
+import { clearYoutubeCache, getYoutubeCacheRoot } from "./services/youtubeCache.js";
 
 await loadLocalEnv();
 
@@ -45,8 +46,18 @@ app.get("/api/health", async () => {
     ok: true,
     localConfigured: localStatus.ok,
     localPrerequisites: localStatus.tools,
+    localModelPrerequisites: localStatus.models,
     gpuStatus: localStatus.gpu,
+    youtubeCacheDir: getYoutubeCacheRoot(),
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY)
+  };
+});
+
+app.delete("/api/youtube-cache", async () => {
+  const result = await clearYoutubeCache();
+  return {
+    ok: true,
+    ...result
   };
 });
 
@@ -165,6 +176,17 @@ function sanitizeUploadFileName(value: string): string {
 app.get("/api/transcriptions/:jobId", async (request, reply) => {
   const params = request.params as { jobId: string };
   const job = getJob(params.jobId);
+
+  if (!job) {
+    return reply.code(404).send({ error: "Job not found." });
+  }
+
+  return job;
+});
+
+app.post("/api/transcriptions/:jobId/cancel", async (request, reply) => {
+  const params = request.params as { jobId: string };
+  const job = cancelJob(params.jobId);
 
   if (!job) {
     return reply.code(404).send({ error: "Job not found." });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, FocusEvent, KeyboardEvent, MouseEvent } from "react";
-import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalSpeedSettings, Provider, TranscriptionResult, TranscriptionSource, YouTubeExtractionMode } from "../shared/types";
+import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalModelStatus, LocalSpeedSettings, Provider, ToolStatus, TranscriptionResult, TranscriptionSource, YouTubeExtractionMode } from "../shared/types";
 import { TranscriptView } from "./components/TranscriptView";
 
 const initialForm = {
@@ -54,18 +54,12 @@ interface DebugEntry {
   error?: string;
 }
 
-interface LocalPrerequisite {
-  key: "ytDlp" | "ffmpeg" | "whisperBin" | "whisperModel";
-  label: string;
-  ok: boolean;
-  path?: string;
-  error?: string;
-}
-
 interface HealthStatus {
   localConfigured: boolean;
-  localPrerequisites: LocalPrerequisite[];
+  localPrerequisites: ToolStatus[];
+  localModelPrerequisites: LocalModelStatus[];
   gpuStatus: GpuStatus;
+  youtubeCacheDir: string;
   openaiConfigured: boolean;
 }
 
@@ -152,15 +146,17 @@ export function App() {
   const [playerApiError, setPlayerApiError] = useState("");
   const [iframePlaybackRequest, setIframePlaybackRequest] = useState({ startSeconds: 0, nonce: 0 });
   const [localMediaUrl, setLocalMediaUrl] = useState("");
+  const [cacheActionStatus, setCacheActionStatus] = useState("");
 
   const isWorking = job?.status === "queued" || job?.status === "running";
+  const selectedModelStatus = health?.localModelPrerequisites.find((model) => model.model === form.localModel);
   const playerState = useMemo(() => form.sourceType === "youtube" ? createPlayerState(form.youtubeUrl) : null, [form.sourceType, form.youtubeUrl]);
   const localMediaKind = useMemo(() => selectedFile ? inferMediaKind(selectedFile) : "video", [selectedFile]);
   const hasPlaybackSource = Boolean(playerState || localMediaUrl);
   const isInteractiveMode = playerFocusMode && hasPlaybackSource;
   const showCollapsedControlPanel = isInteractiveMode && isControlPanelCollapsed;
   const progressLabel = displayedProgress.toFixed(1);
-  const elapsedLabel = job ? formatElapsedTime(job.createdAt, job.status === "completed" || job.status === "failed" ? job.updatedAt : elapsedNow) : "";
+  const elapsedLabel = job ? formatElapsedTime(job.createdAt, job.status === "completed" || job.status === "failed" || job.status === "cancelled" ? job.updatedAt : elapsedNow) : "";
   const timeRangeError = getTimeRangeError(form.startTime, form.endTime, videoMetadata?.durationSeconds);
   const reviewCount = useMemo(() => result?.sentences.filter((sentence) => sentence.qualityStatus === "review").length ?? 0, [result]);
   const transcriptSentences = useMemo(() => {
@@ -457,7 +453,7 @@ export function App() {
   }, [form.sourceType, localMediaKind, localMediaUrl, selectedFile]);
 
   useEffect(() => {
-    if (!job || job.status === "completed" || job.status === "failed") {
+    if (!job || job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
       return;
     }
 
@@ -746,6 +742,58 @@ export function App() {
 
     const contentType = response.headers.get("content-type") ?? "text/plain; charset=utf-8";
     downloadFile(`transcript.${format}`, content, contentType);
+  }
+
+  async function cancelCurrentJob() {
+    if (!job || !isWorking) {
+      return;
+    }
+
+    setError("");
+
+    const { response, data: payload } = await performTrackedRequest<JobRecord | { error?: string }>({
+      url: `/api/transcriptions/${job.id}/cancel`,
+      init: {
+        method: "POST"
+      },
+      responseType: "json",
+      onComplete: appendDebugEntry
+    });
+
+    if (!response.ok) {
+      setError("error" in payload ? (payload.error ?? "Unable to cancel transcription.") : "Unable to cancel transcription.");
+      return;
+    }
+
+    setJob(payload as JobRecord);
+  }
+
+  async function clearYoutubeCache() {
+    setCacheActionStatus("Clearing YouTube cache...");
+    setError("");
+
+    try {
+      const { response, data: payload } = await performTrackedRequest<{ ok?: boolean; error?: string; cacheDir?: string }>({
+        url: "/api/youtube-cache",
+        init: {
+          method: "DELETE"
+        },
+        responseType: "json",
+        onComplete: appendDebugEntry
+      });
+
+      if (!response.ok || !payload.ok) {
+        setCacheActionStatus("");
+        setError(payload.error ?? "Unable to clear YouTube cache.");
+        return;
+      }
+
+      setCacheActionStatus("YouTube cache cleared.");
+      window.setTimeout(() => setCacheActionStatus(""), 2000);
+    } catch {
+      setCacheActionStatus("");
+      setError("Unable to clear YouTube cache.");
+    }
   }
 
   function updateDefaultLanguage(defaultLanguage: LanguageHint) {
@@ -1183,6 +1231,16 @@ export function App() {
                 </select>
               </label>
               <p className="subtle">Cache mode is usually faster for repeated ranges from the same YouTube video.</p>
+              <div className="cache-control">
+                <div>
+                  <p className="eyebrow">Cache folder</p>
+                  <p className="cache-path">{health?.youtubeCacheDir ?? ".cache/scribelocal/youtube"}</p>
+                  {cacheActionStatus ? <p className="subtle">{cacheActionStatus}</p> : null}
+                </div>
+                <button type="button" onClick={clearYoutubeCache}>
+                  Clear Cache
+                </button>
+              </div>
               <div className="settings-divider" />
               <div>
                 <p className="eyebrow">Local Optimization</p>
@@ -1478,7 +1536,7 @@ export function App() {
             Prefer Traditional Chinese cleanup
           </label>
 
-          {health && !health.localConfigured && form.provider === "local" ? (
+          {health && form.provider === "local" && (!health.localConfigured || selectedModelStatus?.ok === false) ? (
             <div className="warning">
               <p className="warning-title">Local setup is incomplete.</p>
               <ul className="prerequisite-list">
@@ -1489,6 +1547,11 @@ export function App() {
                       <strong>{item.label}:</strong> {item.error ?? "Missing"}
                     </li>
                   ))}
+                {selectedModelStatus && !selectedModelStatus.ok ? (
+                  <li>
+                    <strong>{selectedModelStatus.label}:</strong> {selectedModelStatus.error ?? "Missing model path"}
+                  </li>
+                ) : null}
               </ul>
             </div>
           ) : null}
@@ -1517,6 +1580,11 @@ export function App() {
               <span className="elapsed-time">Elapsed {elapsedLabel}</span>
               <progress max="100" value={displayedProgress} />
               <span>{progressLabel}%</span>
+              {isWorking ? (
+                <button className="status-cancel-button" type="button" onClick={cancelCurrentJob}>
+                  Cancel
+                </button>
+              ) : null}
             </div>
           ) : null}
 

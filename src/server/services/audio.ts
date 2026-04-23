@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { formatTimestamp } from "../lib/time.js";
 import { runCommand } from "./process.js";
@@ -17,6 +17,7 @@ export interface ExtractAudioInput {
   workDir: string;
   tools: AudioTools;
   onProgress?: (progress: AudioExtractionProgress) => void;
+  signal?: AbortSignal;
 }
 
 export interface ExtractCachedYoutubeAudioInput extends ExtractAudioInput {
@@ -31,6 +32,7 @@ export interface ExtractLocalMediaInput {
   workDir: string;
   tools: Pick<AudioTools, "ffmpegBin">;
   onProgress?: (progress: AudioExtractionProgress) => void;
+  signal?: AbortSignal;
 }
 
 export interface AudioExtractionProgress {
@@ -85,6 +87,7 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
     buildDirectSegmentYtDlpArgs(input.youtubeUrl, section, rawTemplate),
     {
       timeoutMs: 1000 * 60 * 30,
+      signal: input.signal,
       onStdout: (chunk) =>
         reportYtDlpProgress(chunk, durationSeconds, input.onProgress),
       onStderr: (chunk) =>
@@ -119,6 +122,7 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
     ],
     {
       timeoutMs: 1000 * 60 * 20,
+      signal: input.signal,
       onStderr: (chunk) =>
         reportFfmpegProgress(chunk, durationSeconds, input.onProgress)
     }
@@ -138,6 +142,7 @@ export async function extractCachedYoutubeSegmentAudio(input: ExtractCachedYoutu
     metadata: input.metadata,
     cacheRoot: input.cacheDir,
     ytDlpBin: input.tools.ytDlpBin,
+    signal: input.signal,
     onProgress: (progress) => {
       input.onProgress?.(progress);
     }
@@ -160,6 +165,7 @@ export async function extractCachedYoutubeSegmentAudio(input: ExtractCachedYoutu
     tools: {
       ffmpegBin: input.tools.ffmpegBin
     },
+    signal: input.signal,
     onProgress: (progress) => {
       input.onProgress?.(
         progress.phase === "prepare"
@@ -201,6 +207,7 @@ export async function extractLocalMediaSegmentAudio(input: ExtractLocalMediaInpu
     ],
     {
       timeoutMs: 1000 * 60 * 30,
+      signal: input.signal,
       onStderr: (chunk) =>
         reportFfmpegProgress(chunk, durationSeconds, input.onProgress)
     }
@@ -216,6 +223,7 @@ export interface YoutubeCacheInput {
   cacheRoot: string;
   ytDlpBin: string;
   onProgress?: (progress: AudioExtractionProgress) => void;
+  signal?: AbortSignal;
 }
 
 export async function getOrDownloadYoutubeCachedSource(input: YoutubeCacheInput): Promise<YoutubeCachedSource> {
@@ -226,7 +234,7 @@ export async function getOrDownloadYoutubeCachedSource(input: YoutubeCacheInput)
 
   await mkdir(videoCacheDir, { recursive: true });
 
-  const existingSource = await findCachedYoutubeSource(videoCacheDir);
+  const existingSource = await findValidatedCachedYoutubeSource(videoCacheDir, metadataPath, cacheKey, input.metadata);
   if (existingSource) {
     return {
       cacheKey,
@@ -237,45 +245,64 @@ export async function getOrDownloadYoutubeCachedSource(input: YoutubeCacheInput)
     };
   }
 
-  const outputTemplate = path.join(videoCacheDir, "source.%(ext)s");
-
-  await runCommand(
-    input.ytDlpBin,
-    buildCachedSourceYtDlpArgs(input.youtubeUrl, outputTemplate),
-    {
-      timeoutMs: 1000 * 60 * 60 * 2,
-      onStdout: (chunk) =>
-        reportYtDlpProgress(chunk, totalSeconds, (progress) =>
-          input.onProgress?.(markSourceDownloadProgress(progress))
-        ),
-      onStderr: (chunk) =>
-        reportYtDlpProgress(chunk, totalSeconds, (progress) =>
-          input.onProgress?.(markSourceDownloadProgress(progress))
-        )
+  const lock = await acquireYoutubeCacheLock(videoCacheDir, input.signal);
+  try {
+    const recheckedSource = await findValidatedCachedYoutubeSource(videoCacheDir, metadataPath, cacheKey, input.metadata);
+    if (recheckedSource) {
+      return {
+        cacheKey,
+        cacheDir: videoCacheDir,
+        sourcePath: recheckedSource,
+        metadataPath,
+        cacheHit: true
+      };
     }
-  );
 
-  const downloadedSource = await findCachedYoutubeSource(videoCacheDir);
-  if (!downloadedSource) {
-    throw new Error("yt-dlp did not produce a cached source audio file.");
+    await removeStaleCachedSources(videoCacheDir);
+
+    const outputTemplate = path.join(videoCacheDir, "source.%(ext)s");
+
+    await runCommand(
+      input.ytDlpBin,
+      buildCachedSourceYtDlpArgs(input.youtubeUrl, outputTemplate),
+      {
+        timeoutMs: 1000 * 60 * 60 * 2,
+        signal: input.signal,
+        onStdout: (chunk) =>
+          reportYtDlpProgress(chunk, totalSeconds, (progress) =>
+            input.onProgress?.(markSourceDownloadProgress(progress))
+          ),
+        onStderr: (chunk) =>
+          reportYtDlpProgress(chunk, totalSeconds, (progress) =>
+            input.onProgress?.(markSourceDownloadProgress(progress))
+          )
+      }
+    );
+
+    const downloadedSource = await findCachedYoutubeSource(videoCacheDir);
+    if (!downloadedSource) {
+      throw new Error("yt-dlp did not produce a cached source audio file.");
+    }
+
+    await writeYoutubeCacheMetadata(metadataPath, {
+      id: cacheKey,
+      title: input.metadata.title,
+      sourceUrl: input.youtubeUrl,
+      durationSeconds: input.metadata.durationSeconds,
+      cachedFileName: path.basename(downloadedSource),
+      cachedAt: new Date().toISOString()
+    });
+
+    return {
+      cacheKey,
+      cacheDir: videoCacheDir,
+      sourcePath: downloadedSource,
+      metadataPath,
+      cacheHit: false
+    };
+  } finally {
+    await lock.release();
   }
-
-  await writeYoutubeCacheMetadata(metadataPath, {
-    id: cacheKey,
-    title: input.metadata.title,
-    sourceUrl: input.youtubeUrl,
-    durationSeconds: input.metadata.durationSeconds,
-    cachedFileName: path.basename(downloadedSource),
-    cachedAt: new Date().toISOString()
-  });
-
-  return {
-    cacheKey,
-    cacheDir: videoCacheDir,
-    sourcePath: downloadedSource,
-    metadataPath,
-    cacheHit: false
-  };
 }
 
 export function buildDirectSegmentYtDlpArgs(youtubeUrl: string, section: string, outputTemplate: string): string[] {
@@ -351,8 +378,79 @@ export async function readYoutubeCacheMetadata(metadataPath: string): Promise<Yo
   }
 }
 
+export async function findValidatedCachedYoutubeSource(
+  videoCacheDir: string,
+  metadataPath: string,
+  cacheKey: string,
+  expectedMetadata: VideoMetadata
+): Promise<string | undefined> {
+  const metadata = await readYoutubeCacheMetadata(metadataPath);
+  if (!metadata || metadata.id !== cacheKey || metadata.cachedFileName.length === 0) {
+    return undefined;
+  }
+
+  if (Math.abs(metadata.durationSeconds - expectedMetadata.durationSeconds) > 2) {
+    return undefined;
+  }
+
+  const sourcePath = path.join(videoCacheDir, metadata.cachedFileName);
+
+  try {
+    await access(sourcePath, fsConstants.R_OK);
+    return sourcePath;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function writeYoutubeCacheMetadata(metadataPath: string, metadata: YoutubeCacheMetadata): Promise<void> {
   await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+}
+
+async function acquireYoutubeCacheLock(videoCacheDir: string, signal?: AbortSignal): Promise<{ release: () => Promise<void> }> {
+  const lockPath = path.join(videoCacheDir, "download.lock");
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < 1000 * 60 * 60 * 2) {
+    if (signal?.aborted) {
+      throw new Error("Command cancelled: youtube-cache-lock");
+    }
+
+    try {
+      const handle = await open(lockPath, "wx");
+      await handle.writeFile(new Date().toISOString(), "utf8");
+      await handle.close();
+
+      return {
+        release: async () => {
+          await rm(lockPath, { force: true });
+        }
+      };
+    } catch (error) {
+      if (!isFileExistsError(error)) {
+        throw error;
+      }
+
+      if (await isStaleLock(lockPath)) {
+        await rm(lockPath, { force: true });
+        continue;
+      }
+
+      await delay(1000, signal);
+    }
+  }
+
+  throw new Error("Timed out waiting for YouTube cache lock.");
+}
+
+async function removeStaleCachedSources(videoCacheDir: string) {
+  const files = await readdir(videoCacheDir);
+
+  await Promise.all(
+    files
+      .filter((file) => file.startsWith("source.") || file === "metadata.json")
+      .map((file) => rm(path.join(videoCacheDir, file), { force: true }))
+  );
 }
 
 function markSourceDownloadProgress(progress: AudioExtractionProgress): AudioExtractionProgress {
@@ -484,6 +582,38 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+function isFileExistsError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+}
+
+async function isStaleLock(lockPath: string): Promise<boolean> {
+  try {
+    const lock = await stat(lockPath);
+    return Date.now() - lock.mtimeMs > 1000 * 60 * 60 * 3;
+  } catch {
+    return false;
+  }
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Command cancelled: youtube-cache-lock"));
+      return;
+    }
+
+    const timeout = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        reject(new Error("Command cancelled: youtube-cache-lock"));
+      },
+      { once: true }
+    );
+  });
+}
+
 export async function getYoutubeVideoMetadata(youtubeUrl: string, ytDlpBin: string): Promise<VideoMetadata> {
   const { stdout } = await runCommand(
     ytDlpBin,
@@ -510,7 +640,8 @@ export async function createAudioChunk(
   startSeconds: number,
   durationSeconds: number,
   workDir: string,
-  ffmpegBin: string
+  ffmpegBin: string,
+  signal?: AbortSignal
 ): Promise<AudioChunk> {
   const chunkPath = path.join(workDir, `chunk-${String(chunkIndex + 1).padStart(3, "0")}.wav`);
 
@@ -531,7 +662,7 @@ export async function createAudioChunk(
       "16000",
       chunkPath
     ],
-    { timeoutMs: 1000 * 60 * 10 }
+    { timeoutMs: 1000 * 60 * 10, signal }
   );
 
   return {

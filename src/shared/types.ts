@@ -4,7 +4,7 @@ export type Provider = "local" | "openai";
 
 export type LocalModel = "large-v3-turbo-q8_0" | "large-v3-turbo-q5_0" | "large-v3";
 
-export type JobStatus = "queued" | "running" | "completed" | "failed";
+export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export type TranscriptionSource = "youtube" | "upload";
 
@@ -25,6 +25,24 @@ export interface GpuStatus {
   utilizationPercent?: number;
   memoryUsedMiB?: number;
   memoryTotalMiB?: number;
+}
+
+export interface ToolStatus {
+  key: "ytDlp" | "ffmpeg" | "whisperBin";
+  label: string;
+  ok: boolean;
+  path?: string;
+  error?: string;
+}
+
+export interface LocalModelStatus {
+  model: LocalModel;
+  label: string;
+  envVar: string;
+  ok: boolean;
+  path?: string;
+  fallbackPath?: string;
+  error?: string;
 }
 
 export interface BaseTranscriptionRequest {

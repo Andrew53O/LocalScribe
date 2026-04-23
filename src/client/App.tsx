@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, FocusEvent, KeyboardEvent, MouseEvent } from "react";
-import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalSpeedSettings, Provider, TranscriptionResult, TranscriptionSource } from "../shared/types";
+import type { GpuStatus, JobRecord, LanguageHint, LocalModel, LocalSpeedSettings, Provider, TranscriptionResult, TranscriptionSource, YouTubeExtractionMode } from "../shared/types";
 import { TranscriptView } from "./components/TranscriptView";
 
 const initialForm = {
@@ -11,6 +11,7 @@ const initialForm = {
   languageHint: "auto" as LanguageHint,
   provider: "local" as Provider,
   localModel: "large-v3-turbo-q8_0" as LocalModel,
+  youtubeExtractionMode: "cache-first" as YouTubeExtractionMode,
   glossary: "",
   convertToTraditional: true,
   localSpeed: {
@@ -25,6 +26,7 @@ interface LocalSettings {
   defaultLanguage: LanguageHint;
   defaultModel: LocalModel;
   defaultSpeed: LocalSpeedSettings;
+  youtubeExtractionMode: YouTubeExtractionMode;
 }
 
 type ResultView = "transcript" | "plain";
@@ -92,6 +94,7 @@ type TimeFieldName = "startTime" | "endTime";
 const defaultLocalSettings: LocalSettings = {
   defaultLanguage: "auto",
   defaultModel: "large-v3-turbo-q8_0",
+  youtubeExtractionMode: "cache-first",
   defaultSpeed: {
     beamSize: 5,
     bestOf: 5,
@@ -116,6 +119,7 @@ export function App() {
     ...initialForm,
     languageHint: settings.defaultLanguage,
     localModel: settings.defaultModel,
+    youtubeExtractionMode: settings.youtubeExtractionMode,
     localSpeed: settings.defaultSpeed
   }));
   const [job, setJob] = useState<JobRecord | null>(null);
@@ -754,6 +758,11 @@ export function App() {
     setForm((current) => ({ ...current, localModel: defaultModel }));
   }
 
+  function updateYoutubeExtractionMode(youtubeExtractionMode: YouTubeExtractionMode) {
+    setSettings((current) => ({ ...current, youtubeExtractionMode }));
+    setForm((current) => ({ ...current, youtubeExtractionMode }));
+  }
+
   function updateDefaultSpeed<K extends keyof LocalSpeedSettings>(key: K, value: LocalSpeedSettings[K]) {
     setSettings((current) => ({
       ...current,
@@ -1158,6 +1167,22 @@ export function App() {
                   <option value="large-v3">large-v3 - 2.9 GiB</option>
                 </select>
               </label>
+              <div className="settings-divider" />
+              <div>
+                <p className="eyebrow">YouTube Extraction</p>
+                <h2>Source audio</h2>
+              </div>
+              <label>
+                Extraction mode
+                <select
+                  value={settings.youtubeExtractionMode}
+                  onChange={(event) => updateYoutubeExtractionMode(event.target.value as YouTubeExtractionMode)}
+                >
+                  <option value="cache-first">Cache full source audio first</option>
+                  <option value="direct-segment">Download selected segment directly</option>
+                </select>
+              </label>
+              <p className="subtle">Cache mode is usually faster for repeated ranges from the same YouTube video.</p>
               <div className="settings-divider" />
               <div>
                 <p className="eyebrow">Local Optimization</p>
@@ -1832,6 +1857,9 @@ function loadLocalSettings(): LocalSettings {
     return {
       defaultLanguage: isLanguageHint(parsed.defaultLanguage) ? parsed.defaultLanguage : defaultLocalSettings.defaultLanguage,
       defaultModel: isLocalModel(parsed.defaultModel) ? parsed.defaultModel : defaultLocalSettings.defaultModel,
+      youtubeExtractionMode: isYoutubeExtractionMode(parsed.youtubeExtractionMode)
+        ? parsed.youtubeExtractionMode
+        : defaultLocalSettings.youtubeExtractionMode,
       defaultSpeed: {
         beamSize: clampLoadedNumber(parsed.defaultSpeed?.beamSize, 1, 10, defaultLocalSettings.defaultSpeed.beamSize),
         bestOf: clampLoadedNumber(parsed.defaultSpeed?.bestOf, 1, 10, defaultLocalSettings.defaultSpeed.bestOf),
@@ -1850,6 +1878,10 @@ function isLanguageHint(value: unknown): value is LanguageHint {
 
 function isLocalModel(value: unknown): value is LocalModel {
   return value === "large-v3-turbo-q8_0" || value === "large-v3-turbo-q5_0" || value === "large-v3";
+}
+
+function isYoutubeExtractionMode(value: unknown): value is YouTubeExtractionMode {
+  return value === "cache-first" || value === "direct-segment";
 }
 
 function formatElapsedTime(startValue: string, endValue: string | number): string {

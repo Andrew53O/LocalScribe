@@ -8,6 +8,8 @@ export type JobStatus = "queued" | "running" | "completed" | "failed";
 
 export type TranscriptionSource = "youtube" | "upload";
 
+export type YouTubeExtractionMode = "cache-first" | "direct-segment";
+
 export interface LocalSpeedSettings {
   beamSize: number;
   bestOf: number;
@@ -40,6 +42,7 @@ export interface BaseTranscriptionRequest {
 export interface YouTubeTranscriptionRequest extends BaseTranscriptionRequest {
   sourceType: "youtube";
   youtubeUrl: string;
+  youtubeExtractionMode: YouTubeExtractionMode;
 }
 
 export interface UploadTranscriptionRequest extends BaseTranscriptionRequest {

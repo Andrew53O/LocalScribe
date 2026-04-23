@@ -37,6 +37,7 @@ describe("transcription request validation", () => {
 
     expect(parsed.sourceType).toBe("youtube");
     expect(parsed.youtubeUrl).toContain("youtube.com");
+    expect(parsed.youtubeExtractionMode).toBe("cache-first");
   });
 
   it("accepts uploaded media requests with multipart-style string fields", () => {

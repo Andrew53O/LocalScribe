@@ -8,7 +8,7 @@ import { applyQualityHighlights } from "../lib/quality.js";
 import { segmentsToSentences } from "../lib/sentence.js";
 import { formatTimestamp, validateRange } from "../lib/time.js";
 import { convertBasicSimplifiedToTraditional } from "../lib/traditional.js";
-import { buildChunkPlan, createAudioChunk, extractLocalMediaSegmentAudio, extractSegmentAudio } from "./audio.js";
+import { buildChunkPlan, createAudioChunk, extractCachedYoutubeSegmentAudio, extractLocalMediaSegmentAudio, extractSegmentAudio, getYoutubeVideoMetadata, type VideoMetadata } from "./audio.js";
 import { transcribeWithOpenAI } from "./openaiTranscription.js";
 import { transcribeWithWhisper } from "./whisper.js";
 
@@ -26,7 +26,7 @@ const PROGRESS = {
   completed: 100
 } as const;
 
-export function createJob(request: TranscriptionRequest): JobRecord {
+export function createJob(request: TranscriptionRequest, metadata?: VideoMetadata): JobRecord {
   const now = new Date().toISOString();
   const job: JobRecord = {
     id: crypto.randomUUID(),
@@ -38,7 +38,7 @@ export function createJob(request: TranscriptionRequest): JobRecord {
   };
 
   jobs.set(job.id, job);
-  void runJob(job.id, request);
+  void runJob(job.id, request, metadata);
 
   return job;
 }
@@ -47,7 +47,7 @@ export function getJob(id: string): JobRecord | undefined {
   return jobs.get(id);
 }
 
-async function runJob(jobId: string, request: TranscriptionRequest) {
+async function runJob(jobId: string, request: TranscriptionRequest, metadata?: VideoMetadata) {
   const workDir = await mkdtemp(path.join(os.tmpdir(), "yt-transcribe-"));
 
   try {
@@ -59,7 +59,7 @@ async function runJob(jobId: string, request: TranscriptionRequest) {
       progress: PROGRESS.extractionStart,
       message: `Preparing audio extraction for ${formatTimestamp(range.durationSeconds)} selected range`
     });
-    const audioPath = await prepareSegmentAudio(request, range, workDir, jobId);
+    const audioPath = await prepareSegmentAudio(request, range, workDir, jobId, metadata);
 
     const chunkPlan = buildChunkPlan(range.durationSeconds);
     const totalChunks = Math.max(1, chunkPlan.length);
@@ -148,7 +148,8 @@ async function prepareSegmentAudio(
   request: TranscriptionRequest,
   range: ReturnType<typeof validateRange>,
   workDir: string,
-  jobId: string
+  jobId: string,
+  metadata?: VideoMetadata
 ): Promise<string> {
   if (request.sourceType === "upload") {
     return extractLocalMediaSegmentAudio({
@@ -174,6 +175,52 @@ async function prepareSegmentAudio(
         });
       }
     });
+  }
+
+  if (request.youtubeExtractionMode === "cache-first") {
+    try {
+      const youtubeMetadata = metadata ?? await getYoutubeVideoMetadata(request.youtubeUrl, process.env.YTDLP_BIN || "yt-dlp");
+      return await extractCachedYoutubeSegmentAudio({
+        youtubeUrl: request.youtubeUrl,
+        metadata: youtubeMetadata,
+        cacheDir: getYoutubeCacheRoot(),
+        startSeconds: range.startSeconds,
+        endSeconds: range.endSeconds,
+        workDir,
+        tools: {
+          ytDlpBin: process.env.YTDLP_BIN || "yt-dlp",
+          ffmpegBin: process.env.FFMPEG_BIN || "ffmpeg"
+        },
+        onProgress: (progress) => {
+          if (progress.phase === "prepare") {
+            updateJob(jobId, {
+              progress: PROGRESS.extractionStart,
+              message: formatPreparationProgressMessage(progress)
+            });
+            return;
+          }
+
+          if (progress.phase === "download") {
+            updateJob(jobId, {
+              progress: mapProgress(progress.percent, PROGRESS.extractionStart, PROGRESS.downloadEnd),
+              message: formatTimedProgressMessage(progress.detail ?? "Downloading source audio", progress)
+            });
+            return;
+          }
+
+          updateJob(jobId, {
+            progress: mapProgress(progress.percent, PROGRESS.downloadEnd, PROGRESS.conversionEnd),
+            message: formatTimedProgressMessage("Cutting selected range from cached audio", progress)
+          });
+        }
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Unknown cache error";
+      updateJob(jobId, {
+        progress: PROGRESS.extractionStart,
+        message: `YouTube cache failed; falling back to direct segment extraction - ${reason}`
+      });
+    }
   }
 
   return extractSegmentAudio({
@@ -208,6 +255,10 @@ async function prepareSegmentAudio(
       });
     }
   });
+}
+
+function getYoutubeCacheRoot(): string {
+  return path.resolve(process.env.YOUTUBE_CACHE_DIR || path.join(process.cwd(), ".cache", "scribelocal", "youtube"));
 }
 
 function updateJob(jobId: string, patch: Partial<JobRecord>) {

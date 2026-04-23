@@ -47,7 +47,8 @@ const baseTranscriptionRequestSchema = z.object({
 });
 
 export const transcriptionRequestSchema = baseTranscriptionRequestSchema.extend({
-  sourceType: z.literal("youtube").optional().default("youtube")
+  sourceType: z.literal("youtube").optional().default("youtube"),
+  youtubeExtractionMode: z.enum(["cache-first", "direct-segment"]).optional().default("cache-first")
 });
 
 export const uploadTranscriptionRequestSchema = baseTranscriptionRequestSchema

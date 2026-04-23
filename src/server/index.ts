@@ -97,8 +97,10 @@ app.post("/api/transcriptions", async (request, reply) => {
     });
   }
 
+  let metadata: Awaited<ReturnType<typeof getYoutubeVideoMetadata>>;
+
   try {
-    const metadata = await getYoutubeVideoMetadata(parsed.data.youtubeUrl, process.env.YTDLP_BIN || "yt-dlp");
+    metadata = await getYoutubeVideoMetadata(parsed.data.youtubeUrl, process.env.YTDLP_BIN || "yt-dlp");
     const startSeconds = parseTimestamp(parsed.data.startTime);
     const endSeconds = parseTimestamp(parsed.data.endTime);
 
@@ -113,7 +115,7 @@ app.post("/api/transcriptions", async (request, reply) => {
     });
   }
 
-  const job = createJob(parsed.data);
+  const job = createJob(parsed.data, metadata);
   return reply.code(202).send(job);
 });
 

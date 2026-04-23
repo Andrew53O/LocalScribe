@@ -15,6 +15,7 @@ ScribeLocal is a web app for transcribing only the part of a video or audio file
 - Uses local `whisper.cpp` by default.
 - Supports CPU or NVIDIA CUDA `whisper.cpp` builds.
 - Optional OpenAI mode when `OPENAI_API_KEY` is configured.
+- Caches full YouTube source audio by default, then cuts ranges locally for faster repeated jobs.
 - Shows detailed job progress for extraction, conversion, transcription, and review.
 - Provides sentence-level transcript rows with timestamps, review flags, speaker heuristics, and highlights.
 - Provides an editable paragraph view for clean copy/paste editing.
@@ -31,7 +32,7 @@ The app has three main control areas:
 
 - `Transcribe`: choose YouTube or Local File, set range, language, model, and provider.
 - `History`: local browser history for completed YouTube jobs.
-- `Settings`: default language, default model, and local speed settings.
+- `Settings`: default language, default model, YouTube extraction mode, and local speed settings.
 
 Transcript results have two views:
 
@@ -129,11 +130,14 @@ flowchart TB
 2. Backend fetches video metadata with `yt-dlp`.
 3. User sets `Start` and `End`.
 4. Backend validates the range against the real video duration.
-5. `yt-dlp` downloads the selected audio section.
-6. `ffmpeg` converts it to mono `16 kHz` WAV.
-7. The audio is chunked and transcribed.
-8. The server builds sentence rows, quality highlights, and speaker labels.
-9. The UI shows transcript, paragraph, exports, and synced YouTube playback.
+5. In `cache-first` mode, the backend checks `.cache/scribelocal/youtube/` for cached source audio.
+6. If missing, `yt-dlp` downloads the full best-audio source once.
+7. `ffmpeg` cuts the selected range locally and converts it to mono `16 kHz` WAV.
+8. The audio is chunked and transcribed.
+9. The server builds sentence rows, quality highlights, and speaker labels.
+10. The UI shows transcript, paragraph, exports, and synced YouTube playback.
+
+`direct-segment` mode is still available in Settings. It uses `yt-dlp --download-sections` to download only the selected range directly from YouTube.
 
 ### Local File Jobs
 
@@ -211,12 +215,15 @@ WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q5_0=
 WHISPER_MODEL_PATH_LARGE_V3=
 YTDLP_BIN=yt-dlp
 FFMPEG_BIN=ffmpeg
+YOUTUBE_CACHE_DIR=
 UPLOAD_MAX_BYTES=2147483648
 PORT=8787
 OPENAI_API_KEY=
 ```
 
 `WHISPER_MODEL_PATH` is a fallback. If you select `large-v3` or `large-v3-turbo-q5_0` in the UI, set the matching model-specific path too.
+
+`YOUTUBE_CACHE_DIR` is optional. If empty, cached YouTube audio is stored in `.cache/scribelocal/youtube/`.
 
 Start development mode:
 
@@ -414,6 +421,7 @@ models/         Local ignored Whisper models
 | `WHISPER_MODEL_PATH_LARGE_V3` | Model path for `large-v3` |
 | `YTDLP_BIN` | Path or command name for `yt-dlp` |
 | `FFMPEG_BIN` | Path or command name for `ffmpeg` |
+| `YOUTUBE_CACHE_DIR` | Optional YouTube source audio cache directory |
 | `UPLOAD_MAX_BYTES` | Maximum local upload size, default `2147483648` |
 | `PORT` | Backend port, default `8787` |
 | `OPENAI_API_KEY` | Enables optional OpenAI mode |
@@ -429,6 +437,7 @@ Ignored local artifacts include:
 models/
 tools/
 .env
+.cache/
 node_modules/
 dist/
 ```
@@ -445,7 +454,7 @@ Make sure `WHISPER_CPP_BIN` points to a CUDA/cuBLAS build of `whisper-cli`, not 
 
 ### YouTube extraction is slow
 
-This is usually limited by YouTube network throughput, `yt-dlp`, and stream responsiveness. Local files avoid this extraction bottleneck.
+The default `cache-first` mode downloads full best-audio once and cuts ranges locally, which is often faster for repeated work. The first run still depends on YouTube network throughput. To clear cached source audio, delete `.cache/scribelocal/youtube/` or your custom `YOUTUBE_CACHE_DIR`.
 
 ### Chinese audio becomes English
 
@@ -459,6 +468,7 @@ Increase `UPLOAD_MAX_BYTES` in `.env`, then restart the server.
 
 - Speaker diarization is heuristic, not true multi-speaker diarization.
 - Local upload history is not persisted.
+- YouTube source audio cache uses disk space until manually deleted.
 - The app stores jobs in memory, so jobs reset when the server restarts.
 - Long videos can run for a long time depending on extraction speed, model size, CPU/GPU, and chunk count.
 

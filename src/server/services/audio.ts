@@ -1,4 +1,6 @@
-import { mkdir, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { formatTimestamp } from "../lib/time.js";
 import { runCommand } from "./process.js";
@@ -15,6 +17,11 @@ export interface ExtractAudioInput {
   workDir: string;
   tools: AudioTools;
   onProgress?: (progress: AudioExtractionProgress) => void;
+}
+
+export interface ExtractCachedYoutubeAudioInput extends ExtractAudioInput {
+  metadata: VideoMetadata;
+  cacheDir: string;
 }
 
 export interface ExtractLocalMediaInput {
@@ -41,6 +48,23 @@ export interface VideoMetadata {
   durationSeconds: number;
 }
 
+export interface YoutubeCacheMetadata {
+  id: string;
+  title?: string;
+  sourceUrl: string;
+  durationSeconds: number;
+  cachedFileName: string;
+  cachedAt: string;
+}
+
+export interface YoutubeCachedSource {
+  cacheKey: string;
+  cacheDir: string;
+  sourcePath: string;
+  metadataPath: string;
+  cacheHit: boolean;
+}
+
 export interface AudioChunk {
   index: number;
   startSeconds: number;
@@ -58,17 +82,7 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
 
   await runCommand(
     input.tools.ytDlpBin,
-    [
-      "--no-playlist",
-      "--newline",
-      "--download-sections",
-      section,
-      "-f",
-      "bestaudio/best",
-      "-o",
-      rawTemplate,
-      input.youtubeUrl
-    ],
+    buildDirectSegmentYtDlpArgs(input.youtubeUrl, section, rawTemplate),
     {
       timeoutMs: 1000 * 60 * 30,
       onStdout: (chunk) =>
@@ -114,6 +128,51 @@ export async function extractSegmentAudio(input: ExtractAudioInput): Promise<str
   return normalizedPath;
 }
 
+export async function extractCachedYoutubeSegmentAudio(input: ExtractCachedYoutubeAudioInput): Promise<string> {
+  const durationSeconds = input.endSeconds - input.startSeconds;
+
+  input.onProgress?.(buildExtractionProgress("prepare", 0, durationSeconds, "Checking YouTube audio cache"));
+
+  const cachedSource = await getOrDownloadYoutubeCachedSource({
+    youtubeUrl: input.youtubeUrl,
+    metadata: input.metadata,
+    cacheRoot: input.cacheDir,
+    ytDlpBin: input.tools.ytDlpBin,
+    onProgress: (progress) => {
+      input.onProgress?.(progress);
+    }
+  });
+
+  input.onProgress?.(
+    buildExtractionProgress(
+      "prepare",
+      cachedSource.cacheHit ? 100 : 0,
+      durationSeconds,
+      cachedSource.cacheHit ? "Using cached source audio" : "Cached source audio ready"
+    )
+  );
+
+  return extractLocalMediaSegmentAudio({
+    sourcePath: cachedSource.sourcePath,
+    startSeconds: input.startSeconds,
+    endSeconds: input.endSeconds,
+    workDir: input.workDir,
+    tools: {
+      ffmpegBin: input.tools.ffmpegBin
+    },
+    onProgress: (progress) => {
+      input.onProgress?.(
+        progress.phase === "prepare"
+          ? {
+              ...progress,
+              detail: "Cutting selected range from cached audio"
+            }
+          : progress
+      );
+    }
+  });
+}
+
 export async function extractLocalMediaSegmentAudio(input: ExtractLocalMediaInput): Promise<string> {
   await mkdir(input.workDir, { recursive: true });
   const durationSeconds = input.endSeconds - input.startSeconds;
@@ -149,6 +208,162 @@ export async function extractLocalMediaSegmentAudio(input: ExtractLocalMediaInpu
   input.onProgress?.(buildExtractionProgress("convert", 100, durationSeconds));
 
   return normalizedPath;
+}
+
+export interface YoutubeCacheInput {
+  youtubeUrl: string;
+  metadata: VideoMetadata;
+  cacheRoot: string;
+  ytDlpBin: string;
+  onProgress?: (progress: AudioExtractionProgress) => void;
+}
+
+export async function getOrDownloadYoutubeCachedSource(input: YoutubeCacheInput): Promise<YoutubeCachedSource> {
+  const cacheKey = getYoutubeCacheKey(input.metadata, input.youtubeUrl);
+  const videoCacheDir = getYoutubeVideoCacheDir(input.cacheRoot, cacheKey);
+  const metadataPath = path.join(videoCacheDir, "metadata.json");
+  const totalSeconds = input.metadata.durationSeconds;
+
+  await mkdir(videoCacheDir, { recursive: true });
+
+  const existingSource = await findCachedYoutubeSource(videoCacheDir);
+  if (existingSource) {
+    return {
+      cacheKey,
+      cacheDir: videoCacheDir,
+      sourcePath: existingSource,
+      metadataPath,
+      cacheHit: true
+    };
+  }
+
+  const outputTemplate = path.join(videoCacheDir, "source.%(ext)s");
+
+  await runCommand(
+    input.ytDlpBin,
+    buildCachedSourceYtDlpArgs(input.youtubeUrl, outputTemplate),
+    {
+      timeoutMs: 1000 * 60 * 60 * 2,
+      onStdout: (chunk) =>
+        reportYtDlpProgress(chunk, totalSeconds, (progress) =>
+          input.onProgress?.(markSourceDownloadProgress(progress))
+        ),
+      onStderr: (chunk) =>
+        reportYtDlpProgress(chunk, totalSeconds, (progress) =>
+          input.onProgress?.(markSourceDownloadProgress(progress))
+        )
+    }
+  );
+
+  const downloadedSource = await findCachedYoutubeSource(videoCacheDir);
+  if (!downloadedSource) {
+    throw new Error("yt-dlp did not produce a cached source audio file.");
+  }
+
+  await writeYoutubeCacheMetadata(metadataPath, {
+    id: cacheKey,
+    title: input.metadata.title,
+    sourceUrl: input.youtubeUrl,
+    durationSeconds: input.metadata.durationSeconds,
+    cachedFileName: path.basename(downloadedSource),
+    cachedAt: new Date().toISOString()
+  });
+
+  return {
+    cacheKey,
+    cacheDir: videoCacheDir,
+    sourcePath: downloadedSource,
+    metadataPath,
+    cacheHit: false
+  };
+}
+
+export function buildDirectSegmentYtDlpArgs(youtubeUrl: string, section: string, outputTemplate: string): string[] {
+  return [
+    "--no-playlist",
+    "--newline",
+    "--download-sections",
+    section,
+    "-f",
+    "bestaudio/best",
+    "-o",
+    outputTemplate,
+    youtubeUrl
+  ];
+}
+
+export function buildCachedSourceYtDlpArgs(youtubeUrl: string, outputTemplate: string): string[] {
+  return [
+    "--no-playlist",
+    "--newline",
+    "-f",
+    "bestaudio/best",
+    "-o",
+    outputTemplate,
+    youtubeUrl
+  ];
+}
+
+export function getYoutubeCacheKey(metadata: VideoMetadata, youtubeUrl: string): string {
+  const candidate = metadata.id?.trim();
+  if (candidate) {
+    return sanitizeCacheKey(candidate);
+  }
+
+  return createHash("sha256").update(youtubeUrl).digest("hex").slice(0, 16);
+}
+
+export function getYoutubeVideoCacheDir(cacheRoot: string, cacheKey: string): string {
+  return path.join(cacheRoot, sanitizeCacheKey(cacheKey));
+}
+
+export async function findCachedYoutubeSource(videoCacheDir: string): Promise<string | undefined> {
+  let files: string[];
+
+  try {
+    files = await readdir(videoCacheDir);
+  } catch {
+    return undefined;
+  }
+
+  for (const file of files) {
+    if (!file.startsWith("source.") || file.endsWith(".part") || file.endsWith(".ytdl") || file.endsWith(".json")) {
+      continue;
+    }
+
+    const sourcePath = path.join(videoCacheDir, file);
+    try {
+      await access(sourcePath, fsConstants.R_OK);
+      return sourcePath;
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
+}
+
+export async function readYoutubeCacheMetadata(metadataPath: string): Promise<YoutubeCacheMetadata | undefined> {
+  try {
+    return JSON.parse(await readFile(metadataPath, "utf8")) as YoutubeCacheMetadata;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function writeYoutubeCacheMetadata(metadataPath: string, metadata: YoutubeCacheMetadata): Promise<void> {
+  await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+}
+
+function markSourceDownloadProgress(progress: AudioExtractionProgress): AudioExtractionProgress {
+  if (progress.phase !== "download") {
+    return progress;
+  }
+
+  return {
+    ...progress,
+    detail: "Downloading source audio"
+  };
 }
 
 function reportYtDlpProgress(
@@ -255,6 +470,10 @@ function parseYtDlpPreparationLine(line: string): string | undefined {
 
 function stripAnsi(value: string): string {
   return value.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function sanitizeCacheKey(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "unknown";
 }
 
 function clampPercent(value: number): number {

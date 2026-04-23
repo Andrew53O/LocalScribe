@@ -1,347 +1,376 @@
-# Segment Transcriber
+# ScribeLocal
 
-Local-first web app for transcribing selected parts of YouTube videos or uploaded local audio/video files. It is built for media without subtitles, supports English, Traditional Chinese (Taiwan), and Indonesian, and preserves natural code-switching when speakers mix English into Mandarin or Indonesian.
+Local-first transcription for YouTube segments and local audio/video files.
 
-The default path is fully local with `whisper.cpp`. OpenAI remains optional if you later add an API key.
+ScribeLocal is a web app for transcribing only the part of a video or audio file you care about. It is designed for students, researchers, and makers who want a free local workflow first, with optional OpenAI API support later. The default path uses `whisper.cpp` locally, so uploaded files and most transcription work stay on your machine.
 
-## What It Does
+> Project name note: `ScribeLocal` is the current README brand direction. The package name is still `youtube-segment-transcriber`.
 
-- Transcribes only the selected time range
-- Works with regular YouTube, Shorts, and `/live/...` URLs
-- Supports local audio/video upload through the same transcription pipeline
-- Fetches video duration before starting
-- Validates time ranges against the actual video length
-- Supports local CPU and NVIDIA GPU transcription
-- Refreshes GPU runtime status while jobs are running
-- Shows sentence-level transcript with timestamps
-- Embeds a synced YouTube player for click-to-seek playback
-- Shows a synced native player for uploaded local audio/video files
-- Includes an interactive mode with a collapsed sidebar rail and synced transcript scrolling
-- Provides an editable paragraph transcript view
-- Includes a local review workflow for approve/edit/reset
-- Adds heuristic speaker labels
-- Stores reusable local defaults in browser storage
-- Stores local video history with title, thumbnail, URL, and search
-- Exports `TXT`, `SRT`, and `JSON`
+## Highlights
 
-## Stack
+- Transcribe a selected `Start` to `End` range.
+- Supports YouTube URLs, YouTube Shorts, YouTube `/live/...` links, and local media uploads.
+- Works without captions or subtitles by transcribing audio directly.
+- Supports English, Traditional Chinese Taiwan, Indonesian, and mixed English words inside Chinese or Indonesian speech.
+- Uses local `whisper.cpp` by default.
+- Supports CPU or NVIDIA CUDA `whisper.cpp` builds.
+- Optional OpenAI mode when `OPENAI_API_KEY` is configured.
+- Shows detailed job progress for extraction, conversion, transcription, and review.
+- Provides sentence-level transcript rows with timestamps, review flags, speaker heuristics, and highlights.
+- Provides an editable paragraph view for clean copy/paste editing.
+- Includes synced playback:
+  - YouTube iframe player for YouTube jobs.
+  - Native audio/video player for uploaded local files.
+- Includes Interactive Mode with transcript auto-scroll while media plays.
+- Stores local browser settings and YouTube history in `localStorage`.
+- Exports `TXT`, `SRT`, and `JSON`.
 
-- Frontend: React + TypeScript + Vite
-- Backend: Fastify + TypeScript
-- Audio/video metadata: `yt-dlp`
-- Local upload handling: Fastify multipart streaming
-- Audio normalization: `ffmpeg`
-- Local speech-to-text: `whisper.cpp`
-- Tests: Vitest
+## Screens And Modes
+
+The app has three main control areas:
+
+- `Transcribe`: choose YouTube or Local File, set range, language, model, and provider.
+- `History`: local browser history for completed YouTube jobs.
+- `Settings`: default language, default model, and local speed settings.
+
+Transcript results have two views:
+
+- `Transcript`: timestamped sentence rows with review controls.
+- `Paragraph`: editable plain-text transcript for clean copying.
+
+## Tech Stack
+
+- Frontend: React, TypeScript, Vite
+- Backend: Fastify, TypeScript
+- YouTube extraction: `yt-dlp`
+- Local upload handling: `@fastify/multipart`
+- Audio normalization and clipping: `ffmpeg`
+- Local transcription: `whisper.cpp`
+- Optional API transcription: OpenAI
+- Testing: Vitest
 
 ## System Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph Browser["Browser"]
-        U[User]
-        UI[React UI]
-        LS[(LocalStorage<br/>defaults + history)]
-        YTP[Embedded YouTube Player]
-        FILE[Local Media File]
+        UI["React UI"]
+        STORE[("localStorage<br/>settings + YouTube history")]
+        YTP["YouTube iframe player"]
+        LOCALPLAYER["Native local media player"]
+        FILE["Uploaded audio/video file"]
     end
 
     subgraph API["Fastify API"]
-        HEALTH[/GET /api/health/]
-        META[/GET /api/video-metadata/]
-        JOBS["POST /api/transcriptions<br/>JSON or multipart"]
-        STATUS["GET /api/transcriptions/<br/>:id"]
-        RESULT["GET /api/transcriptions/<br/>:id/result"]
+        HEALTH["GET /api/health"]
+        META["GET /api/video-metadata"]
+        CREATE["POST /api/transcriptions<br/>JSON or multipart"]
+        STATUS["GET /api/transcriptions/:id"]
+        RESULT["GET /api/transcriptions/:id/result"]
+    end
+
+    subgraph Sources["Media Sources"]
+        YOUTUBE["YouTube"]
+        UPLOADTMP["Temporary upload folder"]
     end
 
     subgraph Pipeline["Transcription Pipeline"]
-        YTDLP[yt-dlp]
-        UPLOAD[Upload temp storage]
-        FFMPEG[ffmpeg]
-        WHISPER[whisper.cpp<br/>CPU / CUDA]
-        OPENAI[OpenAI API<br/>optional]
-        REVIEW[Sentence split<br/>Quality review<br/>Speaker heuristics]
-        EXPORT[TXT / SRT / JSON]
+        YTDLP["yt-dlp"]
+        FFMPEG["ffmpeg<br/>cut + mono 16 kHz WAV"]
+        CHUNKS["Progressive audio chunks"]
+        LOCAL["whisper.cpp<br/>CPU or CUDA"]
+        OPENAI["OpenAI API<br/>optional"]
+        REVIEW["Sentence split<br/>quality review<br/>speaker heuristics"]
+        EXPORT["TXT / SRT / JSON"]
     end
 
-    subgraph External["External Services"]
-        YT[YouTube]
-    end
-
-    U --> UI
-    UI <--> LS
+    UI <--> STORE
     UI --> YTP
+    UI --> LOCALPLAYER
     UI --> FILE
 
     UI --> HEALTH
     UI --> META
-    UI --> JOBS
+    UI --> CREATE
     UI --> STATUS
     UI --> RESULT
 
     META --> YTDLP
-    JOBS --> YTDLP
-    JOBS --> UPLOAD
-    YTDLP --> YT
+    CREATE --> YTDLP
+    CREATE --> UPLOADTMP
+    YTDLP --> YOUTUBE
     YTDLP --> FFMPEG
-    UPLOAD --> FFMPEG
-    FFMPEG --> WHISPER
-    JOBS -. optional .-> OPENAI
-    WHISPER --> REVIEW
+    UPLOADTMP --> FFMPEG
+    FFMPEG --> CHUNKS
+    CHUNKS --> LOCAL
+    CHUNKS -. optional .-> OPENAI
+    LOCAL --> REVIEW
     OPENAI --> REVIEW
     REVIEW --> RESULT
     RESULT --> EXPORT
     RESULT --> UI
 
-    classDef browser fill:#eef6ff,stroke:#6aa0ff,color:#17345f,stroke-width:1px;
-    classDef api fill:#edfcef,stroke:#58a05d,color:#16351a,stroke-width:1px;
-    classDef pipeline fill:#fff7e8,stroke:#d49b2f,color:#4d3406,stroke-width:1px;
-    classDef external fill:#f7f0ff,stroke:#9d72cf,color:#392058,stroke-width:1px;
+    classDef browser fill:#eef6ff,stroke:#4c8dce,color:#17345f,stroke-width:1px;
+    classDef api fill:#edfcef,stroke:#4b9b58,color:#16351a,stroke-width:1px;
+    classDef source fill:#fff7e8,stroke:#d49b2f,color:#4d3406,stroke-width:1px;
+    classDef pipeline fill:#f7f0ff,stroke:#8b65c7,color:#392058,stroke-width:1px;
 
-    class U,UI,LS,YTP,FILE browser;
-    class HEALTH,META,JOBS,STATUS,RESULT api;
-    class YTDLP,UPLOAD,FFMPEG,WHISPER,OPENAI,REVIEW,EXPORT pipeline;
-    class YT external;
+    class UI,STORE,YTP,LOCALPLAYER,FILE browser;
+    class HEALTH,META,CREATE,STATUS,RESULT api;
+    class YOUTUBE,UPLOADTMP source;
+    class YTDLP,FFMPEG,CHUNKS,LOCAL,OPENAI,REVIEW,EXPORT pipeline;
 ```
 
-## Core Flows
+## How It Works
 
-### YouTube Transcription
+### YouTube Jobs
 
-1. User pastes a YouTube URL
-2. Client asks backend for video metadata
-3. Backend calls `yt-dlp --dump-single-json`
-4. User selects `Start` and `End`
-5. Backend validates range against the real video duration
-6. Backend extracts only the selected section
-7. `ffmpeg` converts audio to mono `16 kHz` using a faster direct PCM conversion path
-8. `whisper.cpp` or optional OpenAI transcribes
-9. Server builds sentences, heuristics, highlights, and speaker labels
-10. Client renders transcript, paragraph view, and YouTube playback sync
+1. User enters a supported YouTube URL.
+2. Backend fetches video metadata with `yt-dlp`.
+3. User sets `Start` and `End`.
+4. Backend validates the range against the real video duration.
+5. `yt-dlp` downloads the selected audio section.
+6. `ffmpeg` converts it to mono `16 kHz` WAV.
+7. The audio is chunked and transcribed.
+8. The server builds sentence rows, quality highlights, and speaker labels.
+9. The UI shows transcript, paragraph, exports, and synced YouTube playback.
 
-### Local File Transcription
+### Local File Jobs
 
-1. User chooses `Local File`
-2. Browser sends the audio/video file as multipart form data
-3. Backend streams the upload to a temporary folder
-4. User-selected `Start` and `End` are passed to `ffmpeg`
-5. `ffmpeg` cuts and converts the selected section to mono `16 kHz` WAV
-6. The same local Whisper/OpenAI, sentence review, and export pipeline runs
-7. Client shows the uploaded media in a native audio/video player with click-to-seek transcript sync
-8. Temporary uploaded media is deleted after the job cleanup window
+1. User chooses `Local File`.
+2. Browser sends the media file as multipart form data.
+3. Backend streams it to a temporary folder.
+4. `ffmpeg` cuts the selected range and converts it to mono `16 kHz` WAV.
+5. The same transcription and review pipeline runs.
+6. The UI shows the transcript with a synced native audio/video player.
+7. Temporary uploaded media is deleted after the job cleanup window.
 
-Uploaded local files do not create reusable history entries because browsers cannot safely store a permanent path to the original local file.
-
-### History
-
-1. Completed transcription saves the video entry in browser `localStorage`
-2. Entry includes title, URL, thumbnail, and saved time
-3. User can search by title or URL
-4. Clicking a history item restores that URL back into the transcribe form
-
-### Extraction Performance
-
-The slowest stage is usually YouTube audio extraction, not Whisper inference.
-
-Current build changes:
-
-- removes the previous `loudnorm` filter pass
-- converts directly to mono `16 kHz` PCM
-- drops an extra cut-related download flag that did not help audio-only extraction
-
-What still limits speed:
-
-- YouTube network throughput
-- `yt-dlp` section extraction overhead
-- source stream responsiveness for long videos
-
-If extraction is still the bottleneck, the next meaningful optimization would be caching downloaded source audio for videos you revisit.
+Local uploads are not saved in history because browsers do not expose stable reusable file paths.
 
 ## Requirements
 
+Required for the app:
+
 - Node.js 20+
-- `yt-dlp`
 - `ffmpeg`
 - `whisper.cpp`
 - A Whisper GGML model file
 
-`yt-dlp` is only needed for YouTube URLs. Local file upload still requires `ffmpeg` plus either `whisper.cpp` or OpenAI mode.
+Required only for YouTube URLs:
 
-Recommended model:
+- `yt-dlp`
+
+Optional:
+
+- NVIDIA GPU and CUDA/cuBLAS `whisper.cpp` build
+- `OPENAI_API_KEY` for optional OpenAI transcription mode
+
+## Recommended Local Models
+
+Default recommendation:
 
 - `ggml-large-v3-turbo-q8_0.bin`
-  - about `834 MiB`
-  - best default balance for a normal laptop
+  - About `834 MiB`
+  - Good balance for English, Traditional Chinese, Indonesian, and code-switching.
 
-Other useful options:
+Lighter option:
 
 - `ggml-large-v3-turbo-q5_0.bin`
-  - about `547 MiB`
-  - lighter, slightly weaker accuracy
-- `ggml-large-v3.bin`
-  - about `2.9 GiB`
-  - slower and heavier, sometimes better accuracy
+  - About `547 MiB`
+  - Lower storage and memory, slightly more accuracy risk.
 
-Avoid `.en` models for this project because they are English-only.
+Higher quality option:
+
+- `ggml-large-v3.bin`
+  - About `2.9 GiB`
+  - Better in some cases, but heavier and slower.
+
+Avoid `.en` models because this project targets multilingual transcription.
 
 ## Setup
 
-1. Install dependencies:
+Install dependencies:
 
-   ```powershell
-   npm install
-   ```
+```powershell
+npm install
+```
 
-2. Copy `.env.example` to `.env`:
+Copy environment file:
 
-   ```powershell
-   Copy-Item .env.example .env
-   ```
+```powershell
+Copy-Item .env.example .env
+```
 
-3. Set `yt-dlp` and `ffmpeg` paths:
+Configure `.env`:
 
-   ```env
-   YTDLP_BIN=C:\path\to\yt-dlp.exe
-   FFMPEG_BIN=C:\path\to\ffmpeg.exe
-   ```
+```env
+WHISPER_CPP_BIN=C:\path\to\whisper-cli.exe
+WHISPER_MODEL_PATH=C:\path\to\models\ggml-large-v3-turbo-q8_0.bin
+WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0=C:\path\to\models\ggml-large-v3-turbo-q8_0.bin
+WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q5_0=
+WHISPER_MODEL_PATH_LARGE_V3=
+YTDLP_BIN=yt-dlp
+FFMPEG_BIN=ffmpeg
+UPLOAD_MAX_BYTES=2147483648
+PORT=8787
+OPENAI_API_KEY=
+```
 
-4. Download `whisper.cpp` and a model.
+`WHISPER_MODEL_PATH` is a fallback. If you select `large-v3` or `large-v3-turbo-q5_0` in the UI, set the matching model-specific path too.
 
-   Example CPU install:
+Start development mode:
 
-   ```powershell
-   New-Item -ItemType Directory -Force -Path tools\downloads, tools\whisper.cpp, models
-   curl.exe -L -o tools\downloads\whisper-bin-x64.zip https://sourceforge.net/projects/whisper-cpp.mirror/files/v1.8.2/whisper-bin-x64.zip/download
-   tar -xf tools\downloads\whisper-bin-x64.zip -C tools\whisper.cpp
-   curl.exe -L -o models\ggml-large-v3-turbo-q8_0.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin?download=true"
-   ```
+```powershell
+npm run dev
+```
 
-5. Set `.env`:
+Open:
 
-   ```env
-   WHISPER_CPP_BIN=E:\allProject\13. Youtube Transcribe\tools\whisper.cpp\Release\whisper-cli.exe
-   WHISPER_MODEL_PATH=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
-   WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
-   WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q5_0=
-   WHISPER_MODEL_PATH_LARGE_V3=
-   UPLOAD_MAX_BYTES=2147483648
-   PORT=8787
-   OPENAI_API_KEY=
-   ```
+```text
+http://127.0.0.1:5173
+```
 
-   `WHISPER_MODEL_PATH` is kept as the default fallback. If you select `large-v3` or `large-v3-turbo-q5_0` in the UI, set the matching model-specific path too. The backend checks the selected model before extraction starts, so choosing `large-v3` without downloading `ggml-large-v3.bin` fails early with a clear error.
+## Download Helpers
 
-   `UPLOAD_MAX_BYTES` controls the maximum local media upload size. The default is `2147483648` bytes, which is `2 GiB`.
+Example Windows CPU setup:
 
-6. Start the app:
+```powershell
+New-Item -ItemType Directory -Force -Path tools\downloads, tools\whisper.cpp, models
+curl.exe -L -o tools\downloads\whisper-bin-x64.zip https://sourceforge.net/projects/whisper-cpp.mirror/files/v1.8.2/whisper-bin-x64.zip/download
+tar -xf tools\downloads\whisper-bin-x64.zip -C tools\whisper.cpp
+curl.exe -L -o models\ggml-large-v3-turbo-q8_0.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin?download=true"
+```
 
-   ```powershell
-   npm run dev
-   ```
+Then point `WHISPER_CPP_BIN` and `WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0` to those files.
 
-7. Open:
+## NVIDIA GPU
 
-   ```text
-   http://127.0.0.1:5173
-   ```
+To use NVIDIA acceleration, `WHISPER_CPP_BIN` must point to a CUDA/cuBLAS build of `whisper-cli.exe`.
 
-## NVIDIA GPU Acceleration
+Example `.env`:
 
-This project supports NVIDIA GPUs when `WHISPER_CPP_BIN` points to a CUDA/cuBLAS `whisper-cli.exe`.
-
-Example Windows setup:
-
-1. Install an NVIDIA driver
-2. Download a CUDA build, for example:
-   - `whisper-cublas-12.4.0-bin-x64.zip`
-   - `whisper-cublas-11.8.0-bin-x64.zip`
-3. Extract it into an ignored local folder such as `tools\whisper.cpp-cuda`
-4. Update `.env`:
-
-   ```env
-   WHISPER_CPP_BIN=E:\allProject\13. Youtube Transcribe\tools\whisper.cpp-cuda\Release\whisper-cli.exe
-   WHISPER_MODEL_PATH=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
-   WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0=E:\allProject\13. Youtube Transcribe\models\ggml-large-v3-turbo-q8_0.bin
-   ```
+```env
+WHISPER_CPP_BIN=C:\path\to\whisper.cpp-cuda\Release\whisper-cli.exe
+WHISPER_MODEL_PATH=C:\path\to\models\ggml-large-v3-turbo-q8_0.bin
+WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0=C:\path\to\models\ggml-large-v3-turbo-q8_0.bin
+```
 
 The model file is the same. Only the executable changes.
 
+The UI shows GPU status from `/api/health`, including CUDA/CPU mode and runtime utilization when available.
+
+## Usage
+
+### YouTube
+
+1. Choose `YouTube`.
+2. Paste a YouTube URL.
+3. Wait for duration lookup.
+4. Set `Start` and `End`.
+5. Choose language and model.
+6. Click `Transcribe Segment`.
+7. Use `Transcript`, `Paragraph`, playback sync, and exports.
+
+### Local File
+
+1. Choose `Local File`.
+2. Click `Choose media file`.
+3. Pick an audio or video file.
+4. Set `Start` and `End`.
+5. Choose language and model.
+6. Click `Transcribe File`.
+7. Use the native player and transcript sync after transcription.
+
+## Language Notes
+
+Language choices:
+
+- `Auto / mixed`
+- `English`
+- `Chinese Taiwan`
+- `Indonesian`
+
+For Chinese Taiwan, the app asks Whisper for Chinese and can run a basic Simplified-to-Traditional cleanup pass. Whisper may still occasionally choose the wrong script or language if the source audio is ambiguous.
+
+The app does not translate by default. It preserves the spoken language.
+
+## Quality Review
+
+After transcription, the server applies local heuristics to mark suspicious sentences:
+
+- Very short fragments
+- Repetition
+- Long text without punctuation
+- Suspicious punctuation
+- Garbled symbols
+- Low-confidence segments when available
+
+The UI lets you approve, mark for review, edit, and reset individual sentence rows.
+
+## Export Formats
+
+- `TXT`: plain transcript text
+- `SRT`: subtitle file with timestamps
+- `JSON`: full structured result
+
+Downloads use:
+
+- `transcript.txt`
+- `transcript.srt`
+- `transcript.json`
+
 ## Runtime Checks
 
-The app verifies these local prerequisites:
+The app checks local prerequisites through:
+
+```text
+GET /api/health
+```
+
+It reports:
 
 - `yt-dlp`
 - `ffmpeg`
 - `whisper-cli`
-- Whisper model file
+- selected model file
+- GPU status
+- OpenAI key availability
 
-If anything is missing or broken, the UI shows which check failed. The GPU status line also refreshes while jobs are running so you can tell whether CUDA is active or the app has fallen back to CPU mode.
+## API Overview
 
-## Usage
+```text
+GET  /api/health
+GET  /api/video-metadata?youtubeUrl=...
+POST /api/transcriptions
+GET  /api/transcriptions/:jobId
+GET  /api/transcriptions/:jobId/result
+GET  /api/transcriptions/:jobId/result?format=txt
+GET  /api/transcriptions/:jobId/result?format=srt
+```
 
-1. Choose `YouTube` or `Local File`
-2. Paste a YouTube URL or pick an audio/video file
-3. For YouTube, wait for video duration lookup
-4. Enter `Start` and `End`
-5. Choose language and model
-6. Click `Transcribe Segment` or `Transcribe File`
-7. Review the result in:
-   - `Transcript`
-   - `Editable Paragraph`
-8. Use `History` in the left panel to reuse prior YouTube videos
-9. Open the settings icon in the control panel to change default language and model
+`POST /api/transcriptions` accepts:
 
-## Transcript Review
-
-Transcript view supports:
-
-- click-to-seek playback
-- interactive mode playback with synced transcript scrolling
-- speaker labels
-- review filters
-- compact symbol actions for approve / needs-review / edit / reset
-
-The paragraph view is designed for freeform editing and copying.
-
-In the current UI, the settings control is an icon button in the control panel header, and interactive mode shifts the workspace into a player-first layout with the transcript controls moved to the bottom.
-
-## History
-
-History is stored in browser `localStorage` and includes:
-
-- title
-- URL
-- thumbnail
-- duration
-- save time
-
-It is local to the browser on that machine.
-
-## Local Settings
-
-The browser stores:
-
-- default language
-- default local model
-
-These values are applied automatically on load. They are available from the `≡` settings drawer in the control panel.
-
-## Export Formats
-
-- `TXT` -> `transcript.txt`
-- `SRT` -> `transcript.srt`
-- `JSON` -> `transcript.json`
-
-## Optional OpenAI Mode
-
-If you add `OPENAI_API_KEY`, the UI can use OpenAI as an optional provider. Local mode remains the default.
+- JSON for YouTube jobs
+- multipart form data for uploaded local files
 
 ## Development
 
-Run development mode:
+Run the app:
 
 ```powershell
 npm run dev
+```
+
+Run the backend only:
+
+```powershell
+npm run dev:server
+```
+
+Run the frontend only:
+
+```powershell
+npm run dev:client
 ```
 
 Run tests:
@@ -356,6 +385,12 @@ Build production assets:
 npm run build
 ```
 
+Run production build:
+
+```powershell
+npm start
+```
+
 ## Project Structure
 
 ```text
@@ -368,9 +403,27 @@ tools/          Local ignored binaries
 models/         Local ignored Whisper models
 ```
 
+## Environment Variables
+
+| Variable | Purpose |
+| --- | --- |
+| `WHISPER_CPP_BIN` | Path to `whisper-cli` |
+| `WHISPER_MODEL_PATH` | Default fallback model path |
+| `WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q8_0` | Model path for `large-v3-turbo-q8_0` |
+| `WHISPER_MODEL_PATH_LARGE_V3_TURBO_Q5_0` | Model path for `large-v3-turbo-q5_0` |
+| `WHISPER_MODEL_PATH_LARGE_V3` | Model path for `large-v3` |
+| `YTDLP_BIN` | Path or command name for `yt-dlp` |
+| `FFMPEG_BIN` | Path or command name for `ffmpeg` |
+| `UPLOAD_MAX_BYTES` | Maximum local upload size, default `2147483648` |
+| `PORT` | Backend port, default `8787` |
+| `OPENAI_API_KEY` | Enables optional OpenAI mode |
+| `LOG_LEVEL` | Fastify log level, default `warn` |
+
 ## Git Ignore Notes
 
-These local artifacts are intentionally ignored:
+Do not commit local tools, model files, build output, or private environment files.
+
+Ignored local artifacts include:
 
 ```gitignore
 models/
@@ -380,11 +433,35 @@ node_modules/
 dist/
 ```
 
-Do not commit local binaries, models, build output, or machine-specific environment files.
+## Troubleshooting
 
-## Notes
+### Local setup is incomplete
 
-- Captions are not required.
-- The transcript preserves the spoken language. It does not translate by default.
-- Speaker diarization is currently heuristic, not model-based.
-- Review state and history are currently local browser state, not server persistence.
+Check the UI health warning or call `/api/health`. Confirm `WHISPER_CPP_BIN`, model paths, `FFMPEG_BIN`, and `YTDLP_BIN`.
+
+### GPU is not used
+
+Make sure `WHISPER_CPP_BIN` points to a CUDA/cuBLAS build of `whisper-cli`, not the CPU build. The UI GPU status should show CUDA activity while a local job is running.
+
+### YouTube extraction is slow
+
+This is usually limited by YouTube network throughput, `yt-dlp`, and stream responsiveness. Local files avoid this extraction bottleneck.
+
+### Chinese audio becomes English
+
+Set the language hint to `Chinese Taiwan`. Auto detection can fail when audio contains code-switching or technical English terms.
+
+### Local upload is rejected
+
+Increase `UPLOAD_MAX_BYTES` in `.env`, then restart the server.
+
+## Current Limits
+
+- Speaker diarization is heuristic, not true multi-speaker diarization.
+- Local upload history is not persisted.
+- The app stores jobs in memory, so jobs reset when the server restarts.
+- Long videos can run for a long time depending on extraction speed, model size, CPU/GPU, and chunk count.
+
+## License
+
+No license has been added yet. Add a license before publishing as a public open-source repository.

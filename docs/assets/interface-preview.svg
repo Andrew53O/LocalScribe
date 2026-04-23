@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">ScribeLocal interface preview</title>
+  <desc id="desc">Stylized preview of the ScribeLocal app with controls, a transcript, and a synced media player.</desc>
+  <rect width="1200" height="675" fill="#f6f7f4"/>
+  <rect x="36" y="36" width="1128" height="603" rx="18" fill="#ffffff" stroke="#d8ded3"/>
+  <rect x="36" y="36" width="312" height="603" rx="18" fill="#fbfcfa" stroke="#d8ded3"/>
+  <rect x="36" y="36" width="312" height="603" rx="18" fill="none" stroke="#d8ded3"/>
+  <text x="70" y="88" fill="#17211c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="34" font-weight="800">ScribeLocal</text>
+  <text x="70" y="119" fill="#607064" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16">Local-first media transcription</text>
+  <rect x="70" y="154" width="240" height="46" rx="8" fill="#1f6f54"/>
+  <text x="190" y="183" text-anchor="middle" fill="#ffffff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">Transcribe Segment</text>
+  <rect x="70" y="228" width="240" height="40" rx="7" fill="#edf5ef" stroke="#8fa99a"/>
+  <text x="92" y="253" fill="#163a2c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="700">YouTube</text>
+  <text x="224" y="253" fill="#607064" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15">Local File</text>
+  <rect x="70" y="294" width="240" height="44" rx="7" fill="#ffffff" stroke="#bcc8b6"/>
+  <text x="92" y="321" fill="#607064" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14">https://youtube.com/...</text>
+  <rect x="70" y="366" width="112" height="44" rx="7" fill="#ffffff" stroke="#bcc8b6"/>
+  <rect x="198" y="366" width="112" height="44" rx="7" fill="#ffffff" stroke="#bcc8b6"/>
+  <text x="93" y="394" fill="#17211c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15">00:03:00</text>
+  <text x="221" y="394" fill="#17211c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15">00:09:30</text>
+  <rect x="70" y="448" width="240" height="44" rx="7" fill="#ffffff" stroke="#bcc8b6"/>
+  <text x="92" y="476" fill="#17211c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15">Cache full source audio first</text>
+  <rect x="386" y="72" width="738" height="248" rx="14" fill="#111d17"/>
+  <rect x="416" y="102" width="678" height="168" rx="10" fill="#1f2d25"/>
+  <polygon points="704,154 704,218 760,186" fill="#d7e1d6"/>
+  <rect x="416" y="286" width="678" height="8" rx="4" fill="#355143"/>
+  <rect x="416" y="286" width="278" height="8" rx="4" fill="#82c49d"/>
+  <text x="386" y="360" fill="#506247" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" font-weight="800">TRANSCRIPT</text>
+  <text x="386" y="394" fill="#17211c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">Synced sentence review</text>
+  <rect x="386" y="424" width="738" height="70" rx="10" fill="#ffffff" stroke="#d8ded3"/>
+  <text x="414" y="466" fill="#1f6f54" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="800">00:03:04</text>
+  <text x="526" y="466" fill="#17211c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18">The workflow is easier when the audio is cached locally.</text>
+  <rect x="386" y="512" width="738" height="70" rx="10" fill="#fffaf0" stroke="#ddb95a"/>
+  <text x="414" y="554" fill="#8a6600" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="800">00:03:21</text>
+  <text x="526" y="554" fill="#17211c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18">Questionable text is highlighted before export.</text>
+</svg>

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">ScribeLocal pipeline overview</title>
+  <desc id="desc">Overview of the ScribeLocal cache-first pipeline from media source to transcript export.</desc>
+  <rect width="1200" height="420" fill="#fbfcfa"/>
+  <text x="60" y="62" fill="#17211c" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="34" font-weight="800">Cache-first transcription pipeline</text>
+  <text x="60" y="94" fill="#607064" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17">Download YouTube source audio once, then cut ranges locally like uploaded media.</text>
+  <g font-family="Inter, Segoe UI, Arial, sans-serif">
+    <rect x="60" y="148" width="180" height="86" rx="12" fill="#eef6ff" stroke="#4c8dce"/>
+    <text x="150" y="184" text-anchor="middle" fill="#17345f" font-size="17" font-weight="800">Media Source</text>
+    <text x="150" y="211" text-anchor="middle" fill="#17345f" font-size="14">YouTube or file</text>
+    <path d="M250 191h72" stroke="#607064" stroke-width="3" stroke-linecap="round"/>
+    <path d="M322 191l-12-8v16z" fill="#607064"/>
+    <rect x="334" y="148" width="180" height="86" rx="12" fill="#fff7e8" stroke="#d49b2f"/>
+    <text x="424" y="184" text-anchor="middle" fill="#4d3406" font-size="17" font-weight="800">Source Cache</text>
+    <text x="424" y="211" text-anchor="middle" fill="#4d3406" font-size="14">.cache/scribelocal</text>
+    <path d="M524 191h72" stroke="#607064" stroke-width="3" stroke-linecap="round"/>
+    <path d="M596 191l-12-8v16z" fill="#607064"/>
+    <rect x="608" y="148" width="180" height="86" rx="12" fill="#edfcef" stroke="#4b9b58"/>
+    <text x="698" y="184" text-anchor="middle" fill="#16351a" font-size="17" font-weight="800">ffmpeg</text>
+    <text x="698" y="211" text-anchor="middle" fill="#16351a" font-size="14">Cut to 16 kHz WAV</text>
+    <path d="M798 191h72" stroke="#607064" stroke-width="3" stroke-linecap="round"/>
+    <path d="M870 191l-12-8v16z" fill="#607064"/>
+    <rect x="882" y="148" width="180" height="86" rx="12" fill="#f7f0ff" stroke="#8b65c7"/>
+    <text x="972" y="184" text-anchor="middle" fill="#392058" font-size="17" font-weight="800">Whisper</text>
+    <text x="972" y="211" text-anchor="middle" fill="#392058" font-size="14">Local CPU/CUDA</text>
+    <rect x="334" y="292" width="454" height="58" rx="12" fill="#ffffff" stroke="#d8ded3"/>
+    <text x="561" y="328" text-anchor="middle" fill="#17211c" font-size="16" font-weight="800">Sentence review, speaker heuristics, paragraph editor</text>
+    <path d="M972 242v50H800" stroke="#607064" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M800 292l12-8v16z" fill="#607064"/>
+    <rect x="862" y="292" width="200" height="58" rx="12" fill="#ffffff" stroke="#d8ded3"/>
+    <text x="962" y="328" text-anchor="middle" fill="#17211c" font-size="16" font-weight="800">TXT / SRT / JSON</text>
+  </g>
+</svg>
